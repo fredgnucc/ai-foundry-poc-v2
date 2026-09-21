@@ -1,0 +1,35 @@
+#cloud-config
+# Minimal jump host. Its only job is to terminate an SSH session and forward TCP,
+# so nothing is installed that is not needed to run or diagnose that.
+package_update: true
+package_upgrade: false
+packages:
+  - dnsutils
+  - curl
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-lab-jump.conf
+    permissions: '0644'
+    content: |
+      # Port comes from params/lab.json so it can be moved off 22 without
+      # editing this file.
+      Port __SSH_PORT__
+      PasswordAuthentication no
+      PermitRootLogin no
+      # Required for `ssh -D`: the SOCKS proxy is a dynamic forward.
+      AllowTcpForwarding yes
+      # The forward is bound to loopback on the client, never on this host.
+      GatewayPorts no
+
+runcmd:
+  # Ubuntu 24.04 socket-activates sshd. The sshd-socket-generator reads the
+  # drop-in above and rewrites ssh.socket's ListenStream, so a daemon-reload
+  # plus a socket restart is all that is needed to move off 22.
+  # Do NOT disable ssh.socket and start ssh.service instead: ssh.service has
+  # Requires=ssh.socket, so the socket comes straight back on port 22 unless
+  # the generator is also masked.
+  # Source: /usr/share/doc/openssh-server/README.Debian.gz, "Socket-based
+  # activation with systemd" (openssh 9.6p1, Ubuntu 24.04).
+  - systemctl daemon-reload
+  - systemctl restart ssh.socket
+  - echo 'jump host ready' > /var/log/lab-bootstrap.log

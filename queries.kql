@@ -1,0 +1,98 @@
+// AI Gateway Private — Log Analytics queries
+//
+// Workspace : log-aigwp-csmgv3poae57c  (rg-ai-gateway-private)
+// Portal    : Log Analytics workspaces > log-aigwp-csmgv3poae57c > Logs
+//   or      : API Management > aigwp-apim-csmgv3poae57c > Monitoring > Logs
+//
+// NOTE: the time-range picker in the portal overrides any ago() filter below.
+// If a query returns nothing, check the picker before assuming logging is broken.
+//
+// NOTE: these queries use the resource-specific table ApiManagementGatewayLogs,
+// which only receives data because the diagnostic setting sets
+// logAnalyticsDestinationType: 'Dedicated' (see modules/observability.bicep).
+// Without it, rows land in the legacy AzureDiagnostics table instead and this
+// table stays permanently empty — indistinguishable from logging being broken.
+
+
+// ---------------------------------------------------------------------------
+// 1. THE PROOF — did agent egress move inside the VNet?
+//
+// Every request the prompt agent makes to the model passes through APIM, so
+// CallerIpAddress is the agent's source address.
+//   51.12.x.x  = Microsoft's network, egress left your VNet
+//   10.20.1.x  = the data proxy NIC inside snet-agent
+//
+// Measured on this lab:
+//   BEFORE stage 7 : 2026-09-16 08:25:24 UTC  51.12.146.124  200
+//   AFTER  stage 7 : 2026-09-16 09:34:36 UTC  10.20.1.14     200
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
+| extend Path = iff(CallerIpAddress startswith "10.", "PRIVATE (snet-agent)", "PUBLIC (internet)")
+| project TimeGenerated, Path, CallerIpAddress, ResponseCode, BackendResponseCode, Url
+| order by TimeGenerated asc
+
+
+// ---------------------------------------------------------------------------
+// 2. Raw gateway traffic
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
+| project TimeGenerated, CallerIpAddress, Method, Url, ResponseCode, BackendResponseCode, IsRequestSuccess
+| order by TimeGenerated desc
+
+
+// ---------------------------------------------------------------------------
+// 3. Who is still reaching the PUBLIC gateway?
+//
+// Run this before and after setting allowPublicGatewayAccess: false.
+// Expect Microsoft Defender for Cloud probing /mdcscanner from an fd00::/8
+// address roughly every 2 hours — harmless, but live evidence the public
+// listener is still open. After the door is closed these should stop.
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
+| where not(CallerIpAddress startswith "10.")
+| summarize Requests = count(), Last = max(TimeGenerated) by CallerIpAddress, Url, ResponseCode
+| order by Last desc
+
+
+// ---------------------------------------------------------------------------
+// 4. Model and token detail (AI-gateway specific table)
+//
+// Table name is ApiManagementGatewayLlmLog — singular "Log", unlike
+// ApiManagementGatewayLogs. This is what makes it an *AI* gateway rather than
+// a plain reverse proxy: per-request model and token counts, the basis for
+// chargeback and for token-limit policies.
+//
+// Run `ApiManagementGatewayLlmLog | getschema` first — column names vary by
+// API version and were not verified on this workspace.
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLlmLog
+| where TimeGenerated > ago(24h)
+| take 20
+
+
+// ---------------------------------------------------------------------------
+// 5. Errors only
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
+| where ResponseCode >= 400
+| project TimeGenerated, CallerIpAddress, Url, ResponseCode, BackendResponseCode, LastErrorReason, LastErrorMessage
+| order by TimeGenerated desc
+
+
+// ---------------------------------------------------------------------------
+// 6. Legacy fallback
+//
+// If the queries above are empty but the APIM "Requests" metric shows traffic,
+// the diagnostic setting has reverted to the legacy shared table. Check here
+// before concluding logging is broken. Column names differ: CallerIPAddress
+// (capital IP) and typed suffixes such as responseCode_d, url_s.
+// ---------------------------------------------------------------------------
+AzureDiagnostics
+| where TimeGenerated > ago(24h)
+| where ResourceProvider == "MICROSOFT.APIMANAGEMENT"
+| project TimeGenerated, CallerIPAddress, url_s, responseCode_d
+| order by TimeGenerated desc

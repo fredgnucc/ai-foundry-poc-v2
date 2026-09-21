@@ -1,0 +1,30 @@
+{
+  "location": "swedencentral",
+  "resourceGroupName": "rg-ai-gateway-priv3",
+  "namePrefix": "aigwp",
+  "nameSeed": "v1",
+  "tags": { "lab": "ai-gateway-private-3step" },
+
+  "vnetAddressPrefix": "10.20.0.0/16",
+  "apimSubnetPrefix": "10.20.0.0/24",
+  "agentSubnetPrefix": "10.20.1.0/24",
+  "peSubnetPrefix": "10.20.2.0/24",
+  "jumpSubnetPrefix": "10.20.3.0/24",
+
+  "jumpVmSize": "Standard_B2ts_v2",
+  "sshPort": 2222,
+  "socksPort": 1080,
+
+  "projectName": "private-poc",
+  "modelName": "gpt-6-astra",
+  "modelVersion": "2026-09-03",
+  "modelCapacity": 10,
+  "inferenceApiVersion": "2024-10-21",
+
+  "publisherEmail": "you@example.com",
+  "allowPublicGatewayAccess": true,
+  "tokenLimitPerMinute": 0,
+
+  "searchSku": "basic",
+  "capabilityHostName": "caphostproj"
+}
