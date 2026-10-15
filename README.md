@@ -142,6 +142,61 @@ above holds regardless. To close the public inbound entirely, see the optional
 section at the end. If instead the agent fails to reach the model, that points at the
 data-proxy → private-endpoint DNS path rather than at public access.
 
+## Step 5 — Foundry hosted agent (optional)
+
+Also **optional** and **additive**. A **hosted** agent is your own code — here
+Microsoft Agent Framework in `hosted-agent/main.py` — that Foundry builds and runs
+for you. Each session gets its own sandbox, and because the account was created
+with `networkInjections`, the sandboxes run inside this VNet. No Dockerfile and no
+registry: you upload a zip of the source and Foundry runs `pip install` for you.
+
+| Piece | Created by | Why |
+|-------|------------|-----|
+| Project identity → **Foundry User** on the account | `05-hosted-agent.bicep` | Hosted agents call models through the project endpoint. Portal-created projects get this role automatically; Bicep-created ones don't. |
+| The agent (zip → remote build → version) | `hosted-agent.py` | Agents are data-plane objects, so Bicep can't create them — same reason as `agent.py`. |
+
+```powershell
+# 1. The role (once)
+az deployment sub create --name aigwp-hosted-agent `
+  --location swedencentral --parameters 05-hosted-agent.bicepparam
+
+# 2. Deploy + test - tunnel open, like agent.py (or on the jump host with --no-tunnel)
+pip install "requests[socks]" azure-identity      # once
+python hosted-agent.py
+```
+
+The script zips `hosted-agent/` flat (`main.py` + `requirements.txt`), creates the
+agent — or posts a new version when the code changed (same zip = same version, so
+re-runs are safe) — waits about a minute for the build to become `active`, then
+sends one message to the agent's Responses endpoint:
+
+```text
+Tool : where_am_i({})
+     -> {"hostname": "adc-sandbox", ..., "foundry_endpoint_ip": "10.20.2.6", "source_ip": "169.254.0.2"}
+Agent: I run on hostname `adc-sandbox`, with source IP `169.254.0.2` and Foundry endpoint IP `10.20.2.6`.
+```
+
+That reply is the private proof: the account has public access **disabled**, yet the
+sandbox resolved the Foundry private endpoint (`10.20.2.6`) over the VNet's private
+DNS and called the model through it. `169.254.0.2` is the sandbox's own NAT'd
+address; its subnet IP isn't visible from inside.
+
+```powershell
+python hosted-agent.py --skip-deploy --message "Hello"   # just chat
+python hosted-agent.py --delete                          # agent + versions + sessions
+```
+
+- The agent calls the model **directly** through the project endpoint, not through
+  APIM, so it doesn't appear in `ApiManagementGatewayLogs`. The BYO gateway only
+  speaks chat/completions, and gpt-6-astra supports tools only on the Responses API.
+- A call on a new session takes up to ~30 s while the sandbox starts.
+- A failed build prints the version's `error` (with the pip line); a failed call
+  prints the session's container logs.
+- To see it in the portal, open the project's **Agents** page through `connect.ps1`.
+
+Teardown needs nothing extra — the agent lives in the project and goes with the
+resource group.
+
 ## Cost
 
 This stack bills continuously whether or not you call it — APIM Standard v2,
