@@ -321,7 +321,8 @@ Tool : where_am_i(...)
 Agent: I run on hostname `adc-sandbox`, with source IP `169.254.0.2` and gateway IP `10.20.2.7`.
 ```
 
-The sandbox resolved APIM's private endpoint (`10.20.2.7`) over the VNet's private
+The sandbox resolved APIM's private endpoint (`10.20.2.7` here — IPs in these
+examples are from our run; yours are assigned by Azure and will differ) over the VNet's private
 DNS. `169.254.0.2` is the sandbox's own NAT'd address; its subnet IP isn't visible
 from inside — but APIM sees it. The proof is in the gateway log (`queries.kql` #7):
 
@@ -330,7 +331,7 @@ from inside — but APIM sees it. The proof is in the gateway log (`queries.kql`
 | 2026-10-15 13:45:19 | `10.20.1.87` | 200 | 200 |
 | 2026-10-15 13:45:22 | `10.20.1.87` | 200 | 200 |
 
-`10.20.1.87` is in `snet-agent`. One question = two calls: the tool call, then the
+`10.20.1.87` is an address Azure picked in `snet-agent` (`agentSubnetPrefix`). One question = two calls: the tool call, then the
 final answer.
 
 The API's sign-in check, tested with curl from the jump host:
@@ -377,7 +378,7 @@ The model picks the command; it runs either:
 | `target` | Where | As |
 |----------|-------|----|
 | `sandbox` | The agent's own sandbox (`/bin/sh`) | root of the sandbox |
-| `jump` | The jump host over SSH (`10.20.3.4:2222`, private) | `foundrydiag` — no sudo |
+| `jump` | The jump host over SSH (its private IP, read from the NIC by step 6; port `sshPort`) | `foundrydiag` — no sudo |
 
 Limits (`hosted-agent/execution.py`): 60 s per command (whole process group
 killed), 16 KiB of output, one command at a time, host key pinned (an unknown
@@ -389,18 +390,23 @@ What step 6 adds:
 |-------|-------|-----|
 | Key Vault `kv-<prefix>-<suffix>` — RBAC, public access off, private endpoint in `snet-pe` + `privatelink.vaultcore.azure.net` zone | `06-agent-shell.bicep` | Holds the SSH private key. The secret is written through ARM, so you need no network path to the vault. |
 | **Key Vault Secrets User** on that one secret for the agent identity and the project identity | `modules/agent-shell.bicep` | The sandbox reads the key with `DefaultAzureCredential`. |
-| User `foundrydiag` on the jump host, key only from `10.20.1.0/24`, no forwarding | over SSH (below) | Bicep doesn't manage users inside the VM. |
+| User `foundrydiag` on the jump host, key only from the agent subnet (`agentSubnetPrefix`), no forwarding | over SSH (below) | Bicep doesn't manage users inside the VM. |
 
 ```powershell
+# 0. Values from lab.json and step 1 - no IPs to type
+$lab  = Get-Content params\lab.json -Raw | ConvertFrom-Json
+$p    = $lab.sshPort
+$jump = "$(if ($env:LAB_ADMIN_USER) { $env:LAB_ADMIN_USER } else { 'azureuser' })@$(az deployment sub show --name aigwp-infra --query properties.outputs.publicIpAddress.value -o tsv)"
+
 # 1. Key pair (temp folder, never the repo) + jump-host user
 $d = "$env:TEMP\agentkey"; mkdir $d -Force | Out-Null
 ssh-keygen -q -t ed25519 -N '' -C foundrydiag -f "$d\id"   # -N '' = no passphrase (not '""')
 $pub = (Get-Content "$d\id.pub" -Raw).Trim()
-ssh -p 2222 azureuser@<jump-public-ip> "id foundrydiag || sudo useradd -m -s /bin/bash foundrydiag; sudo install -d -m 700 -o foundrydiag -g foundrydiag /home/foundrydiag/.ssh; echo 'from=""10.20.1.0/24"",no-port-forwarding,no-agent-forwarding,no-X11-forwarding $pub' | sudo tee /home/foundrydiag/.ssh/authorized_keys; sudo chown foundrydiag: /home/foundrydiag/.ssh/authorized_keys; sudo chmod 600 /home/foundrydiag/.ssh/authorized_keys"
+ssh -p $p $jump "id foundrydiag || sudo useradd -m -s /bin/bash foundrydiag; sudo install -d -m 700 -o foundrydiag -g foundrydiag /home/foundrydiag/.ssh; echo 'from=""$($lab.agentSubnetPrefix)"",no-port-forwarding,no-agent-forwarding,no-X11-forwarding $pub' | sudo tee /home/foundrydiag/.ssh/authorized_keys; sudo chown foundrydiag: /home/foundrydiag/.ssh/authorized_keys; sudo chmod 600 /home/foundrydiag/.ssh/authorized_keys"
 
 # 2. Vault + secret + roles. AGENT_PRINCIPAL_ID = instance_identity.principal_id of the agent
 $env:AGENT_PRINCIPAL_ID   = '<agent identity>'
-$env:JUMP_HOST_KEY        = (ssh -p 2222 azureuser@<jump-public-ip> 'cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub')
+$env:JUMP_HOST_KEY        = (ssh -p $p $jump 'cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub')
 $env:JUMP_SSH_PRIVATE_KEY = Get-Content "$d\id" -Raw
 az deployment sub create --name aigwp-agent-shell `
   --location $loc --parameters 06-agent-shell.bicepparam
@@ -418,7 +424,7 @@ Tool : run_command({"command":"hostname; id; uptime; ip -br a","target":"jump"})
      -> {"status": "completed", "exit_code": 0, "output": "vm-aigwp-jump\nuid=1001(foundrydiag) ..."}
 ```
 
-The jump host's sshd log shows the login came from the agent subnet:
+The jump host's sshd log shows the login came from the agent subnet (example IP):
 `Accepted publickey for foundrydiag from 10.20.1.124`.
 
 **Risks — this is a remote shell driven by a model:**
@@ -441,7 +447,7 @@ Teardown: goes with the resource group. The vault soft-deletes for 7 days; run
 tell the agent it may use it:
 
 ```powershell
-ssh -p 2222 azureuser@<jump-public-ip> "echo 'foundrydiag ALL=(ALL) NOPASSWD:ALL' > /tmp/fd && sudo visudo -cf /tmp/fd && sudo install -m 440 /tmp/fd /etc/sudoers.d/90-foundrydiag && rm /tmp/fd"
+ssh -p $p $jump "echo 'foundrydiag ALL=(ALL) NOPASSWD:ALL' > /tmp/fd && sudo visudo -cf /tmp/fd && sudo install -m 440 /tmp/fd /etc/sudoers.d/90-foundrydiag && rm /tmp/fd"   # $p, $jump: step 6, part 0
 python hosted-agent.py --enable-shell --allow-sudo --message "Install cowsay on the jump host and make it say hello"
 # undo: sudo rm /etc/sudoers.d/90-foundrydiag, then redeploy without --allow-sudo
 ```
