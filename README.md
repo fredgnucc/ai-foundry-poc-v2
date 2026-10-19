@@ -86,6 +86,13 @@ az deployment sub create --name aigwp-runtime `
 
 Preview any step first with `what-if` instead of `create`.
 
+`--location` is only where ARM stores the deployment record; resources go to
+`location` in `lab.json`. Keep `swedencentral` here even if the lab moves — a
+deployment name can't change its record location. If a region is out of capacity
+for a service (e.g. `InsufficientResourcesAvailable` on AI Search), move the whole
+lab: the Foundry resource must be in the same region as its VNet, and capability
+hosts can't be updated to add Search later.
+
 ## Create the agent
 
 The account's public data plane is disabled, so `ai.azure.com`'s client-side

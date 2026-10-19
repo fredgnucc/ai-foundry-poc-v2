@@ -1,8 +1,8 @@
 {
-  "location": "swedencentral",
-  "resourceGroupName": "rg-ai-gateway-priv4",
+  "location": "norwayeast",
+  "resourceGroupName": "rg-ai-gateway-priv5",
   "namePrefix": "aigwp",
-  "nameSeed": "v2",
+  "nameSeed": "v3",
   "tags": { "lab": "ai-gateway-private-3step" },
 
   "vnetAddressPrefix": "10.20.0.0/16",
