@@ -72,9 +72,12 @@ Two options. Set the three values in `params/lab.json`:
 > `resourceGroupName` + `nameSeed`. Give each instance a distinct
 > `resourceGroupName` (or `nameSeed`) so they don't collide.
 
-Two values are **not** committed — set them in your shell before step 1:
+Set these in your shell before step 1 (the SSH key is **not** committed):
 
 ```powershell
+# region for every 'az deployment sub' command, read from lab.json
+$loc = (Get-Content params\lab.json -Raw | ConvertFrom-Json).location
+
 # required: your SSH public key
 $env:LAB_SSH_PUBKEY = (Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" -Raw).Trim()
 
@@ -92,29 +95,32 @@ $env:LAB_SSH_PUBKEY = (Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" -Raw).
 
 ```powershell
 az deployment sub create --name aigwp-infra `
-  --location swedencentral --parameters 01-infra.bicepparam
+  --location $loc --parameters 01-infra.bicepparam
 ```
 
 **Step 2 — Foundry + AI Gateway** (~6 min)
 
 ```powershell
 az deployment sub create --name aigwp-gateway `
-  --location swedencentral --parameters 02-gateway.bicepparam
+  --location $loc --parameters 02-gateway.bicepparam
 ```
 
 **Step 3 — agent runtime / capability host** (~10 min)
 
 ```powershell
 az deployment sub create --name aigwp-runtime `
-  --location swedencentral --parameters 03-runtime.bicepparam
+  --location $loc --parameters 03-runtime.bicepparam
 ```
 
 Preview any step first with `what-if` instead of `create`.
 
-The commands are the same for both regions. `--location` is only where ARM stores
-the deployment record; resources go to `location` in `lab.json` (see
-[Choose a region](#choose-a-region)). Keep `swedencentral` here even when the lab
-runs in Norway East — a deployment name can't change its record location.
+The commands are the same for both regions: `$loc` comes from `lab.json` (see
+[Choose a region](#choose-a-region)).
+
+> **Changed region?** ARM keeps one record per deployment name and refuses to
+> reuse it in another location (`InvalidDeploymentLocation`). Delete the old
+> record first — this deletes only the record, not the resources:
+> `az deployment sub delete --name aigwp-infra` (same for each step you rerun).
 
 ## Create the agent
 
@@ -219,7 +225,7 @@ model is untouched). Foundry IQ needs it to vectorize content:
 
 ```powershell
 az deployment sub create --name aigwp-foundry-iq `
-  --location swedencentral --parameters 04-foundry-iq.bicepparam
+  --location $loc --parameters 04-foundry-iq.bicepparam
 ```
 
 **2. Enable the free semantic ranker** on the Search service — agentic retrieval
@@ -294,7 +300,7 @@ every call. It uses a second, **keyless** API on the step-2 gateway:
 ```powershell
 # 1. The gateway API (once)
 az deployment sub create --name aigwp-hosted-agent `
-  --location swedencentral --parameters 05-hosted-agent.bicepparam
+  --location $loc --parameters 05-hosted-agent.bicepparam
 
 # 2. Deploy + test - tunnel open, like agent.py (or on the jump host with --no-tunnel)
 pip install "requests[socks]" azure-identity      # once
@@ -397,7 +403,7 @@ $env:AGENT_PRINCIPAL_ID   = '<agent identity>'
 $env:JUMP_HOST_KEY        = (ssh -p 2222 azureuser@<jump-public-ip> 'cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub')
 $env:JUMP_SSH_PRIVATE_KEY = Get-Content "$d\id" -Raw
 az deployment sub create --name aigwp-agent-shell `
-  --location swedencentral --parameters 06-agent-shell.bicepparam
+  --location $loc --parameters 06-agent-shell.bicepparam
 Remove-Item -Recurse -Force $d; Remove-Item Env:JUMP_SSH_PRIVATE_KEY
 
 # 3. New agent version with the tool + SSH_* settings from step 6's outputs
