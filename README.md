@@ -49,6 +49,24 @@ in the templates. Review at least `location`, `resourceGroupName`, `nameSeed`,
 `publisherEmail`, and the model (`modelName`, `modelVersion`, `modelSku`,
 `separateModelAccount`).
 
+### Choose a region
+
+Two options. Set the three values in `params/lab.json`:
+
+| Region | `location` | `resourceGroupName` | `nameSeed` | Notes |
+|---|---|---|---|---|
+| Sweden Central | `swedencentral` | `rg-ai-gateway-priv4` | `v2` | The first lab ran here. Busy: in Oct 2026 new **AI Search** services failed with `InsufficientResourcesAvailable` |
+| Norway East | `norwayeast` | `rg-ai-gateway-priv5` | `v3` | Current `lab.json`. Hosted agents, `gpt-5.6-sol` DataZoneStandard, APIM Standard v2, the VM size and AI Search all checked available |
+
+> **Capacity can be a problem.** A region can run out of capacity for one
+> service (AI Search, a VM size, a model SKU) while the rest works. Step 3 then
+> fails with `InsufficientResourcesAvailable`. Retry later, or move the **whole**
+> lab: the Foundry resource must be in the same region as its VNet, and capability
+> hosts can't be updated to add Search later. To test a region first, create a
+> throwaway basic Search service there and delete it. Model quota for DataZone
+> and Global SKUs is shared across regions — check it with
+> `az cognitiveservices usage list -l <region>`.
+
 > **Running more than one instance in the same subscription?** Foundry accounts
 > and APIM soft-delete, and every resource name is derived from
 > `resourceGroupName` + `nameSeed`. Give each instance a distinct
@@ -86,12 +104,10 @@ az deployment sub create --name aigwp-runtime `
 
 Preview any step first with `what-if` instead of `create`.
 
-`--location` is only where ARM stores the deployment record; resources go to
-`location` in `lab.json`. Keep `swedencentral` here even if the lab moves — a
-deployment name can't change its record location. If a region is out of capacity
-for a service (e.g. `InsufficientResourcesAvailable` on AI Search), move the whole
-lab: the Foundry resource must be in the same region as its VNet, and capability
-hosts can't be updated to add Search later.
+The commands are the same for both regions. `--location` is only where ARM stores
+the deployment record; resources go to `location` in `lab.json` (see
+[Choose a region](#choose-a-region)). Keep `swedencentral` here even when the lab
+runs in Norway East — a deployment name can't change its record location.
 
 ## Create the agent
 
