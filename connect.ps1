@@ -14,13 +14,16 @@
   Page to open. Defaults to the Foundry portal.
 .PARAMETER TunnelOnly
   Open the tunnel and print the proxy settings without launching a browser.
+.PARAMETER AllowSleep
+  Do not keep the laptop awake. Sleep (Modern Standby) resets the tunnel.
 #>
 [CmdletBinding()]
 param(
   [string]$ConfigPath = (Join-Path $PSScriptRoot 'params\lab.json'),
   [string]$Url = 'https://ai.azure.com',
   [string]$IdentityFile,
-  [switch]$TunnelOnly
+  [switch]$TunnelOnly,
+  [switch]$AllowSleep
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,6 +112,21 @@ else {
   }
 
   Write-Host "SOCKS proxy listening on 127.0.0.1:$socksPort (ssh pid $($ssh.Id))" -ForegroundColor Green
+
+  # Measured: every tunnel drop matched 'WCM entered connected standby' to the
+  # second - Modern Standby resets open TCP flows. Screen-off triggers standby,
+  # so the display must be held on too (ES_CONTINUOUS|SYSTEM|DISPLAY_REQUIRED).
+  # A hidden helper holds it while ssh lives; it exits with the tunnel.
+  if (-not $AllowSleep) {
+    $keepAwake = @"
+Add-Type -Name P -Namespace W -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
+[void][W.P]::SetThreadExecutionState([uint32]'0x80000003')
+Wait-Process -Id $($ssh.Id) -ErrorAction SilentlyContinue
+"@
+    $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($keepAwake))
+    $awake = Start-Process pwsh -ArgumentList '-NoProfile', '-NonInteractive', '-EncodedCommand', $enc -WindowStyle Hidden -PassThru
+    Write-Host "Keeping the laptop awake while the tunnel is open (pid $($awake.Id)); closing the lid still sleeps it." -ForegroundColor Green
+  }
 }
 
 if ($TunnelOnly) {

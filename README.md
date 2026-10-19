@@ -154,6 +154,11 @@ portal through the jump host:
 ./connect.ps1        # opens a SOCKS tunnel and launches Edge through it
 ```
 
+While the tunnel is open, `connect.ps1` keeps the laptop awake (screen on).
+Windows sleep (Modern Standby) resets the tunnel with `Connection reset`. Closing
+the lid still sleeps the laptop: run `./connect.ps1` again after. Use
+`-AllowSleep` to turn this off.
+
 In the portal, open the project and create a **prompt** agent on the deployed
 model. Chat with it to generate traffic.
 
