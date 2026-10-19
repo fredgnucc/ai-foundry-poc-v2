@@ -31,6 +31,7 @@ param projectName string
 param modelName string
 param modelVersion string
 param modelCapacity int
+param modelSku string
 param inferenceApiVersion string
 
 @description('APIM publisher email (required by the service).')
@@ -49,6 +50,13 @@ param allowPublicGatewayAccess bool
 
 @description('Per-minute token limit enforced at the gateway. 0 disables it.')
 param tokenLimitPerMinute int
+
+@description('''
+Option C. True: the chat model goes into its own model-only account, which only
+the gateway can call, so agents in the project can't skip the gateway. False:
+the model sits in the project's account (agents can reach it directly).
+''')
+param separateModelAccount bool
 
 var names = labNames(namePrefix, resourceSuffix(subscription().id, resourceGroupName, namePrefix, nameSeed))
 
@@ -86,7 +94,24 @@ module foundry 'modules/foundry-private.bicep' = {
     modelName: modelName
     modelVersion: modelVersion
     modelCapacity: modelCapacity
+    modelSku: modelSku
+    deployModel: !separateModelAccount
     agentSubnetId: subnetId.agent
+    peSubnetId: subnetId.privateEndpoints
+  }
+}
+
+module modelAccount 'modules/model-account.bicep' = if (separateModelAccount) {
+  scope: resourceGroup(resourceGroupName)
+  name: 'model-account'
+  params: {
+    location: location
+    tags: tags
+    accountName: names.modelAccount
+    modelName: modelName
+    modelVersion: modelVersion
+    modelCapacity: modelCapacity
+    modelSku: modelSku
     peSubnetId: subnetId.privateEndpoints
   }
 }
@@ -144,6 +169,7 @@ module association 'modules/association.bicep' = {
   name: 'association'
   params: {
     accountName: names.account
+    modelAccountName: separateModelAccount ? names.modelAccount : names.account
     apimName: names.apim
     projectName: projectName
     productName: productName(names.account, projectName)
@@ -152,10 +178,11 @@ module association 'modules/association.bicep' = {
     inferenceApiVersion: inferenceApiVersion
     tokenLimitPerMinute: tokenLimitPerMinute
   }
-  dependsOn: [ foundry, gateway ]
+  dependsOn: [ foundry, gateway, modelAccount ]
 }
 
 output accountName string = names.account
+output modelAccountName string = separateModelAccount ? names.modelAccount : names.account
 output projectName string = foundry.outputs.projectName
 output deploymentName string = foundry.outputs.deploymentName
 // connectionName is the admin-connected model connection created by association;

@@ -12,8 +12,10 @@ param projectName = lab.projectName
 param modelName = lab.modelName
 param modelVersion = lab.modelVersion
 param modelCapacity = lab.modelCapacity
+param modelSku = lab.modelSku
 param inferenceApiVersion = lab.inferenceApiVersion
 
 param publisherEmail = lab.publisherEmail
 param allowPublicGatewayAccess = lab.allowPublicGatewayAccess
 param tokenLimitPerMinute = lab.tokenLimitPerMinute
+param separateModelAccount = lab.separateModelAccount

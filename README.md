@@ -17,7 +17,7 @@ steps are the deployment.
 | Step | Template | Creates | Bills |
 |------|----------|---------|-------|
 | 1 | `01-infra.bicep`   | Resource group, VNet + 4 subnets (2 delegated), NSGs, private DNS zones, jump host | ~nothing |
-| 2 | `02-gateway.bicep` | Foundry account + injection + model + project + PE, APIM Standard v2 + PE, diagnostics, and the association wiring them together | hourly (APIM) |
+| 2 | `02-gateway.bicep` | Foundry account + injection + model + project + PE, APIM Standard v2 + PE, diagnostics, and the association wiring them together. With `separateModelAccount` the model goes into its own account (`aim-…`) | hourly (APIM) |
 | 3 | `03-runtime.bicep` | Cosmos / AI Search / Storage (+ PEs), connections, RBAC, and the project **capability host** that provisions the in-VNet data proxy | hourly (Cosmos, Search) |
 
 ### The three layers people conflate
@@ -45,8 +45,9 @@ your VNet.
 ## Configure
 
 Structural settings live in `params/lab.json` — one source of truth, no defaults
-in the templates. Review at least `location`, `resourceGroupName`, `nameSeed` and
-`publisherEmail`.
+in the templates. Review at least `location`, `resourceGroupName`, `nameSeed`,
+`publisherEmail`, and the model (`modelName`, `modelVersion`, `modelSku`,
+`separateModelAccount`).
 
 > **Running more than one instance in the same subscription?** Foundry accounts
 > and APIM soft-delete, and every resource name is derived from
@@ -141,6 +142,39 @@ a `10.x` caller address over private DNS from inside the VNet — so the column 
 above holds regardless. To close the public inbound entirely, see the optional
 section at the end. If instead the agent fails to reach the model, that points at the
 data-proxy → private-endpoint DNS path rather than at public access.
+
+## Gateway-only model access (`separateModelAccount`, option C)
+
+Routing through APIM is only a choice in the agent's code: an agent's identity can
+call the models of its **own project's account** through the project endpoint
+without any role (see Step 5). Network rules can't block that path either, because
+the hosting platform uses the same endpoint for sessions and state.
+
+With `"separateModelAccount": true` in `lab.json`, step 2 moves the chat model out:
+
+| Account | Holds | Who can call the model |
+|---------|-------|------------------------|
+| `aif-…` (project) | project, agents, embedding (step 4) | nobody: no chat model here |
+| `aim-…` (model only) | the chat model; private endpoint only; `disableLocalAuth: true`; no projects | only APIM's managed identity (Cognitive Services OpenAI User) |
+
+So every chat call has to go through the gateway. In the portal, pick the
+gateway connection's model (`<account>/<model>`), not a bare deployment.
+`false` keeps the old layout (model in the project's account).
+
+`modelSku` sets the deployment SKU. `GlobalStandard` and `DataZoneStandard` have
+separate quotas; the default here is `DataZoneStandard` (EU data zone).
+
+Check it after step 2 (tunnel open):
+
+| Test | Expected with option C |
+|------|------------------------|
+| `python agent.py` | works, through APIM |
+| `python agent.py --direct` (bare deployment, no gateway) | fails: the project's account has no such deployment |
+| Hosted agent (step 5) | works, through APIM |
+| From the hosted agent's shell (step 6): call `https://aim-….services.ai.azure.com/openai/v1/responses` with its own token | `401`/`403`: no role on `aim-…` |
+
+Not covered: the embedding model stays in the project's account (step 4 needs it
+there), so agents can still call embeddings directly.
 
 ## Step 4 — Foundry IQ knowledge test (optional)
 

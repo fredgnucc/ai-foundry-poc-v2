@@ -28,6 +28,8 @@ resource is identifiable at a glance; the shared prefix and suffix follow.
 ''')
 func labNames(namePrefix string, suffix string) object => {
   account: toLower('aif-${namePrefix}-${suffix}')
+  // Model-only account used when separateModelAccount is true (step 2).
+  modelAccount: toLower('aim-${namePrefix}-${suffix}')
   apim: toLower('apim-${namePrefix}-${suffix}')
   vnet: toLower('vnet-${namePrefix}-${suffix}')
   // Storage names are alphanumeric only and capped at 24 characters.

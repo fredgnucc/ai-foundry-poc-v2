@@ -19,6 +19,12 @@ param modelName string
 param modelVersion string
 param modelCapacity int
 
+@description('Deployment SKU, e.g. GlobalStandard or DataZoneStandard (separate quota).')
+param modelSku string
+
+@description('False when the chat model lives in a separate model account (option C).')
+param deployModel bool = true
+
 @description('Subnet delegated to Microsoft.App/environments that hosts agent compute.')
 param agentSubnetId string
 
@@ -60,11 +66,11 @@ resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   }
 }
 
-resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {
+resource deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = if (deployModel) {
   parent: account
   name: modelName
   sku: {
-    name: 'GlobalStandard'
+    name: modelSku
     capacity: modelCapacity
   }
   properties: {
@@ -109,6 +115,6 @@ module accountPe 'private-endpoint.bicep' = {
 output accountId string = account.id
 output accountName string = account.name
 output accountPrincipalId string = account.identity.principalId
-output deploymentName string = deployment.name
+output deploymentName string = modelName
 output projectName string = project.name
 output projectPrincipalId string = project.identity.principalId

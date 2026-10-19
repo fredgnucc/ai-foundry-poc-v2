@@ -1,6 +1,9 @@
 metadata description = 'Wires the gateway to the Foundry account: RBAC, backend, API, operations, policy, product, links and the admin-connected model.'
 
 param accountName string
+
+@description('Account that holds the chat model: accountName, or the separate model account (option C).')
+param modelAccountName string = accountName
 param apimName string
 param projectName string
 param productName string
@@ -18,6 +21,10 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' exis
   name: projectName
 }
 
+resource modelAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
+  name: modelAccountName
+}
+
 resource apim 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = {
   name: apimName
 }
@@ -29,8 +36,8 @@ var openAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 // Hop 2 of 2: APIM -> model, authenticated with the gateway's managed identity.
 // (Hop 1 is caller -> APIM, authenticated with the subscription key below.)
 resource gatewayCanCallModel 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: account
-  name: guid(account.id, apim.id, openAiUserRoleId)
+  scope: modelAccount
+  name: guid(modelAccount.id, apim.id, openAiUserRoleId)
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', openAiUserRoleId)
     principalId: apim.identity.principalId
@@ -46,7 +53,7 @@ resource backend 'Microsoft.ApiManagement/service/backends@2024-06-01-preview' =
   parent: apim
   name: accountName
   properties: {
-    url: 'https://${accountName}.services.ai.azure.com/openai'
+    url: 'https://${modelAccountName}.services.ai.azure.com/openai'
     protocol: 'http'
     credentials: {
       #disable-next-line BCP037
