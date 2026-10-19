@@ -1,15 +1,15 @@
 targetScope = 'subscription'
 
 metadata description = '''
-Step 6 (optional) - shell access for the step-5 hosted agent.
+Step 5 (optional) - shell access for the step-4 hosted agent.
 
-Additive: it does NOT modify steps 1-5. It adds a private Key Vault (with its
+Additive: it does NOT modify steps 1-4. It adds a private Key Vault (with its
 private DNS zone and endpoint) holding the SSH key of a non-sudo jump-host user,
 readable only by the agent. hosted-agent.py --enable-shell reads this
 deployment's outputs and passes them to the agent as SSH_* settings.
 
 The jump-host user and its authorized_keys are created over SSH, not here
-(see README, Step 6).
+(see README, Step 5).
 '''
 
 import { resourceSuffix, labNames, subnetNames } from './shared/naming.bicep'

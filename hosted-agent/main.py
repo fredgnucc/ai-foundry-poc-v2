@@ -4,7 +4,7 @@ hosted-agent.py zips this folder and Foundry builds it (code deploy, remote_buil
 no Dockerfile, no registry. Each session runs in its own sandbox.
 
 The model is reached only through the AI gateway (APIM), never directly through the
-project endpoint. hosted-agent.py sets AI_GATEWAY_URL (the step-5 API, which takes a
+project endpoint. hosted-agent.py sets AI_GATEWAY_URL (the step-4 API, which takes a
 Microsoft Entra token instead of a key) and AZURE_AI_MODEL_DEPLOYMENT_NAME.
 """
 

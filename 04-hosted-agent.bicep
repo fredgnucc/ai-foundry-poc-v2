@@ -1,9 +1,9 @@
 targetScope = 'subscription'
 
 metadata description = '''
-Step 5 (optional) - Foundry hosted agent, routed through the AI gateway.
+Step 4 (optional) - Foundry hosted agent, routed through the AI gateway.
 
-Additive like step 4: it does NOT redeploy or modify steps 1-3. It adds a second
+Additive: it does NOT redeploy or modify steps 1-3. It adds a second
 API to the step-2 gateway for hosted agents: Microsoft Entra token in (no key),
 the gateway's managed identity out, Responses API only.
 

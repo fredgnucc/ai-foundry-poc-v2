@@ -7,7 +7,7 @@ grounded answer with citations. This script runs the *retrieve* action against t
 knowledge base - the one part of the loop that is a clean, documented single call.
 
 The knowledge base itself (index, vectorizer, knowledge source, semantic config) is
-created with the portal wizard - see README "Step 4". This script assumes it exists.
+created with the portal wizard - see README "Step 6". This script assumes it exists.
 
 The Search service is private (publicNetworkAccess: disabled), reached over its
 private endpoint, so this only works from inside the VNet. Run it either:
@@ -159,7 +159,7 @@ def main() -> int:
         if response.status_code == 404:
             print(
                 f"\nKnowledge base '{args.knowledge_base}' not found. Create it with the "
-                "portal wizard first (README Step 4), or pass --knowledge-base.",
+                "portal wizard first (README Step 6), or pass --knowledge-base.",
                 file=sys.stderr,
             )
         return 1

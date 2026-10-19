@@ -1,4 +1,4 @@
-using '04-foundry-iq.bicep'
+using '06-foundry-iq.bicep'
 
 var lab = loadJsonContent('params/lab.json')
 

@@ -99,7 +99,7 @@ AzureDiagnostics
 
 
 // ---------------------------------------------------------------------------
-// 7. Step 5 — the hosted agent through the keyless (Entra) API
+// 7. Step 4 — the hosted agent through the keyless (Entra) API
 //
 // One agent turn with a tool = two POSTs (tool call, then final answer).
 //   10.20.1.x  = a hosted agent sandbox in snet-agent

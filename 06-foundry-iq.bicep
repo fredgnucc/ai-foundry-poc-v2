@@ -1,7 +1,7 @@
 targetScope = 'subscription'
 
 metadata description = '''
-Step 4 (optional) - Foundry IQ knowledge test.
+Step 6 (optional) - Foundry IQ knowledge test.
 
 Isolated from the core three-step deploy and additive by design: it does NOT
 redeploy or modify steps 1-3. It only adds an embedding model deployment to the

@@ -1,4 +1,4 @@
-using '05-hosted-agent.bicep'
+using '04-hosted-agent.bicep'
 
 var lab = loadJsonContent('params/lab.json')
 
