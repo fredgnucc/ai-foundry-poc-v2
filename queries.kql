@@ -96,3 +96,19 @@ AzureDiagnostics
 | where ResourceProvider == "MICROSOFT.APIMANAGEMENT"
 | project TimeGenerated, CallerIPAddress, url_s, responseCode_d
 | order by TimeGenerated desc
+
+
+// ---------------------------------------------------------------------------
+// 7. Step 5 — the hosted agent through the keyless (Entra) API
+//
+// One agent turn with a tool = two POSTs (tool call, then final answer).
+//   10.20.1.x  = a hosted agent sandbox in snet-agent
+//   10.20.3.x  = your own tests from the jump host
+//
+// Measured on this lab: 2026-10-15 13:45:19 UTC  10.20.1.87  200  200 (x2)
+// ---------------------------------------------------------------------------
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(24h)
+| where ApiId endswith "-entra"
+| project TimeGenerated, CallerIpAddress, Url, ResponseCode, BackendResponseCode
+| order by TimeGenerated asc

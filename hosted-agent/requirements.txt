@@ -1,3 +1,7 @@
-agent-framework-foundry
+agent-framework-openai
 agent-framework-foundry-hosting>=1.0.0b260813
 azure-identity
+# Async HTTP transport for azure.identity.aio.
+aiohttp
+paramiko>=3.5,<5
+azure-keyvault-secrets>=4.9,<5

@@ -1,0 +1,25 @@
+<policies>
+  <inbound>
+    <base />
+    <!-- Hop 1 of 2: the caller proves who it is with a Microsoft Entra token for
+         https://ai.azure.com from this tenant. No subscription key. -->
+    <validate-azure-ad-token tenant-id="__TENANT__">
+      <audiences>
+        <audience>https://ai.azure.com</audience>
+      </audiences>
+    </validate-azure-ad-token>
+    <!-- The caller's token stops here. Hop 2 (APIM -> model) is signed by the backend's
+         managed identity credentials, so only the gateway needs a role on the account. -->
+    <set-header name="Authorization" exists-action="delete" />
+    <set-backend-service backend-id="__BACKEND__" />
+  </inbound>
+  <backend>
+    <base />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

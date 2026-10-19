@@ -3,10 +3,11 @@
 
 A hosted agent is your own code that Foundry runs for you, one sandbox per session.
 Like a prompt agent it lives only on the project data plane, so Bicep cannot create
-it - step 5 (05-hosted-agent.bicep) only grants the role it needs. This script:
+it - step 5 (05-hosted-agent.bicep) only adds the gateway API it calls. This script:
 
   1. zips hosted-agent/ flat (main.py + requirements.txt - no Dockerfile, no registry),
-  2. creates the agent, or posts a new version if it exists (same zip = same version),
+  2. creates the agent with AI_GATEWAY_URL from step 5's outputs, or posts a new
+     version if it exists (same zip and settings = same version),
   3. waits while Foundry installs requirements.txt (remote build) until it's active,
   4. sends one message to the agent's Responses endpoint and prints the reply.
 
@@ -16,6 +17,7 @@ connect.ps1 SOCKS tunnel open (auto-detected), or on the jump host with --no-tun
 Usage:
     python hosted-agent.py
     python hosted-agent.py --skip-deploy --message "Hello"
+    python hosted-agent.py --enable-shell   # + run_command tool (step 6 for SSH)
     python hosted-agent.py --delete
 """
 
@@ -83,7 +85,7 @@ def build_zip(source: Path) -> bytes:
     return buffer.getvalue()
 
 
-def deploy(api: DataPlane, name: str, model: str) -> str:
+def deploy(api: DataPlane, name: str, model: str, gateway_url: str, extra_env: dict[str, str]) -> str:
     code = build_zip(SOURCE)
     sha = hashlib.sha256(code).hexdigest()
     metadata = {
@@ -99,7 +101,7 @@ def deploy(api: DataPlane, name: str, model: str) -> str:
                 # Foundry runs pip install -r requirements.txt in the cloud.
                 "dependency_resolution": "remote_build",
             },
-            "environment_variables": {"AZURE_AI_MODEL_DEPLOYMENT_NAME": model},
+            "environment_variables": {"AZURE_AI_MODEL_DEPLOYMENT_NAME": model, "AI_GATEWAY_URL": gateway_url, **extra_env},
         },
     }
     files = {
@@ -123,6 +125,22 @@ def deploy(api: DataPlane, name: str, model: str) -> str:
     body = response.json()
     latest = body.get("versions", {}).get("latest") or body
     return str(latest["version"])
+
+
+def shell_env(shell_deployment: str) -> dict[str, str]:
+    """Settings for run_command: sandbox always, jump host when step 6 is deployed."""
+    env = {"ENABLE_SHELL": "true"}
+    if shell_deployment:
+        out = deployment_outputs(shell_deployment)
+        env |= {
+            "SSH_HOST": out["sshHost"],
+            "SSH_PORT": str(out["sshPort"]),
+            "SSH_USER": out["sshUser"],
+            "SSH_KNOWN_HOST": out["sshKnownHost"],
+            "SSH_VAULT_URL": out["vaultUri"],
+            "SSH_SECRET_NAME": out["secretName"],
+        }
+    return env
 
 
 def wait_active(api: DataPlane, name: str, version: str, timeout: int) -> None:
@@ -221,13 +239,33 @@ def main() -> int:
     sys.stdout.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description="Deploy and test a Foundry hosted agent.")
     parser.add_argument("--deployment", default="aigwp-gateway", help="Step-2 Bicep deployment name.")
+    parser.add_argument(
+        "--gateway-deployment",
+        default="aigwp-hosted-agent",
+        help="Step-5 Bicep deployment name (its gatewayUrl output becomes AI_GATEWAY_URL).",
+    )
     parser.add_argument("--name", default="hosted-agent", help="Agent name.")
     parser.add_argument(
         "--message",
-        default="Where do you run? Use your tool, then give the hostname, the source IP and the endpoint IP.",
+        default="Where do you run? Use your tool, then give the hostname, the source IP and the gateway IP.",
         help="Message to send once the agent is active.",
     )
     parser.add_argument("--skip-deploy", action="store_true", help="Only send the message to the existing agent.")
+    parser.add_argument(
+        "--enable-shell",
+        action="store_true",
+        help="Give the agent the run_command tool (Linux commands in its sandbox). Trusted lab use only.",
+    )
+    parser.add_argument(
+        "--allow-sudo",
+        action="store_true",
+        help="With --enable-shell: tell the agent it may use sudo on the jump host (needs the sudoers file, README Step 6).",
+    )
+    parser.add_argument(
+        "--shell-deployment",
+        default="aigwp-agent-shell",
+        help="Step-6 deployment whose outputs let run_command SSH to the jump host. '' = sandbox only.",
+    )
     parser.add_argument("--delete", action="store_true", help="Delete the agent with all its versions and sessions.")
     parser.add_argument("--timeout", type=int, default=900, help="Seconds to wait for the build (default 900).")
     parser.add_argument(
@@ -245,8 +283,15 @@ def main() -> int:
     if args.delete:
         return delete(api, args.name)
     if not args.skip_deploy:
-        # The agent calls the model deployment directly through the project endpoint.
-        version = deploy(api, args.name, out["deploymentName"])
+        # The agent reaches the model only through the step-5 gateway API.
+        gateway_url = deployment_outputs(args.gateway_deployment).get("gatewayUrl")
+        if not gateway_url:
+            sys.exit(f"Deployment '{args.gateway_deployment}' has no gatewayUrl output. Deploy step 5 first.")
+        print(f"AI gateway: {gateway_url}")
+        extra_env = shell_env(args.shell_deployment) if args.enable_shell else {}
+        if args.enable_shell and args.allow_sudo:
+            extra_env["JUMP_ALLOW_SUDO"] = "true"
+        version = deploy(api, args.name, out["deploymentName"], gateway_url, extra_env)
         wait_active(api, args.name, version, args.timeout)
     return invoke(api, args.name, args.message)
 

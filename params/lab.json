@@ -26,5 +26,10 @@
   "tokenLimitPerMinute": 0,
 
   "searchSku": "basic",
-  "capabilityHostName": "caphostproj"
+  "capabilityHostName": "caphostproj",
+
+  "embeddingModelName": "text-embedding-3-large",
+  "embeddingModelVersion": "1",
+  "embeddingModelCapacity": 50,
+  "knowledgeBaseName": "lab-knowledge"
 }

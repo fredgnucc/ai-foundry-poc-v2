@@ -142,7 +142,75 @@ above holds regardless. To close the public inbound entirely, see the optional
 section at the end. If instead the agent fails to reach the model, that points at the
 data-proxy → private-endpoint DNS path rather than at public access.
 
-## Step 5 — Foundry hosted agent (optional)
+## Step 4 — Foundry IQ knowledge test (optional)
+
+This step is **optional** and **additive**: it does not redeploy or modify steps
+1–3. It proves that *knowledge retrieval* also stays on the private network. Foundry
+IQ is a knowledge layer built on Azure AI Search — a **knowledge base** orchestrates
+*agentic retrieval* over your data and returns a grounded, cited answer. The lab
+already ships the private AI Search from step 3; three small additions complete it.
+
+**1. Add an embedding model** (a new deployment on the existing account — the chat
+model is untouched). Foundry IQ needs it to vectorize content:
+
+```powershell
+az deployment sub create --name aigwp-foundry-iq `
+  --location swedencentral --parameters 04-foundry-iq.bicepparam
+```
+
+**2. Enable the free semantic ranker** on the Search service — agentic retrieval
+uses it to rerank. Non-destructive and reversible; it recreates nothing. Portal:
+Search service → **Settings → Semantic ranker → Free**. Or from the CLI:
+
+```powershell
+$search = az deployment sub show --name aigwp-foundry-iq `
+  --query properties.outputs.searchName.value -o tsv
+$id = az search service show --name $search -g rg-ai-gateway-priv3 --query id -o tsv
+$body = New-TemporaryFile
+'{"properties":{"semanticSearch":"free"}}' | Set-Content $body -Encoding ascii
+az rest --method patch `
+  --url ('https://management.azure.com{0}?api-version=2024-06-01-preview' -f $id.Trim()) `
+  --body "@$body"
+Remove-Item $body
+```
+
+**3. Create the knowledge base** with the portal wizard (over the tunnel, so the
+private Search is reachable):
+
+```powershell
+./connect.ps1        # SOCKS tunnel + Edge, as in step "Create the agent"
+```
+
+In the portal use **Foundry IQ** (or AI Search → *Import and vectorize data*) to
+build a knowledge base named as in `lab.json` (`knowledgeBaseName`, default
+`lab-knowledge`): upload a couple of small documents, pick the existing Search
+service and the `text-embedding-3-large` deployment, and let the wizard create the
+index, vectorizer, semantic config and knowledge source. The wizard is the robust
+path for this fast-moving preview surface, so the template does not script it.
+
+**4. Query it privately** with the retrieve API — like `agent.py`, it auto-detects
+the tunnel and reads the Search name from the step-3 outputs. You need the **Search
+Index Data Reader** role on the Search service:
+
+```powershell
+pip install "requests[socks]" azure-identity      # once
+python foundry-iq-test.py --question "What does the sample document say about ...?"
+```
+
+The retrieve call goes to `<search>.search.windows.net`, which resolves to a
+private endpoint over the VNet's private DNS — so, exactly like the agent's model
+calls, knowledge retrieval never leaves your network. The knowledge base is also
+exposed as an **MCP** endpoint, which is how a Foundry agent consumes it over that
+same private path.
+
+> One honest gap: at **ingestion** time the Search → Foundry embedding call still
+> uses the Foundry trusted-service bypass rather than pure Private Link. Query-time
+> retrieval (what this test exercises) is fully private.
+
+Teardown needs nothing extra — the embedding deployment and the knowledge base live
+in the resource group, so the `az group delete` below removes them.
+
+## Step 5 — Foundry hosted agent through the AI gateway (optional)
 
 Also **optional** and **additive**. A **hosted** agent is your own code — here
 Microsoft Agent Framework in `hosted-agent/main.py` — that Foundry builds and runs
@@ -150,13 +218,16 @@ for you. Each session gets its own sandbox, and because the account was created
 with `networkInjections`, the sandboxes run inside this VNet. No Dockerfile and no
 registry: you upload a zip of the source and Foundry runs `pip install` for you.
 
+Like the prompt agent, it reaches the model **through APIM**, so the gateway sees
+every call. It uses a second, **keyless** API on the step-2 gateway:
+
 | Piece | Created by | Why |
 |-------|------------|-----|
-| Project identity → **Foundry User** on the account | `05-hosted-agent.bicep` | Hosted agents call models through the project endpoint. Portal-created projects get this role automatically; Bicep-created ones don't. |
-| The agent (zip → remote build → version) | `hosted-agent.py` | Agents are data-plane objects, so Bicep can't create them — same reason as `agent.py`. |
+| API `<account>-entra` on the gateway — `POST /v1/responses` only | `05-hosted-agent.bicep` | The agent signs in with its own Microsoft Entra identity (token audience `https://ai.azure.com`), so there's no key to store. APIM checks the token, removes it, and calls the model with its own managed identity (the step-2 backend). |
+| The agent (zip → remote build → version), with `AI_GATEWAY_URL` | `hosted-agent.py` | Agents are data-plane objects, so Bicep can't create them — same reason as `agent.py`. |
 
 ```powershell
-# 1. The role (once)
+# 1. The gateway API (once)
 az deployment sub create --name aigwp-hosted-agent `
   --location swedencentral --parameters 05-hosted-agent.bicepparam
 
@@ -165,37 +236,149 @@ pip install "requests[socks]" azure-identity      # once
 python hosted-agent.py
 ```
 
-The script zips `hosted-agent/` flat (`main.py` + `requirements.txt`), creates the
-agent — or posts a new version when the code changed (same zip = same version, so
-re-runs are safe) — waits about a minute for the build to become `active`, then
+The script reads the API address from step 5's `gatewayUrl` output, zips
+`hosted-agent/` flat (`main.py` + `requirements.txt`), creates the agent — or posts a
+new version when the code or settings changed (same zip and settings = same version,
+so re-runs are safe) — waits about a minute for the build to become `active`, then
 sends one message to the agent's Responses endpoint:
 
 ```text
-Tool : where_am_i({})
-     -> {"hostname": "adc-sandbox", ..., "foundry_endpoint_ip": "10.20.2.6", "source_ip": "169.254.0.2"}
-Agent: I run on hostname `adc-sandbox`, with source IP `169.254.0.2` and Foundry endpoint IP `10.20.2.6`.
+AI gateway: https://apim-aigwp-<suffix>.azure-api.net/aif-aigwp-<suffix>-entra/v1
+  v4: active (52s)
+Tool : where_am_i(...)
+     -> {"hostname": "adc-sandbox", ..., "ai_gateway_ip": "10.20.2.7", "source_ip": "169.254.0.2"}
+Agent: I run on hostname `adc-sandbox`, with source IP `169.254.0.2` and gateway IP `10.20.2.7`.
 ```
 
-That reply is the private proof: the account has public access **disabled**, yet the
-sandbox resolved the Foundry private endpoint (`10.20.2.6`) over the VNet's private
-DNS and called the model through it. `169.254.0.2` is the sandbox's own NAT'd
-address; its subnet IP isn't visible from inside.
+The sandbox resolved APIM's private endpoint (`10.20.2.7`) over the VNet's private
+DNS. `169.254.0.2` is the sandbox's own NAT'd address; its subnet IP isn't visible
+from inside — but APIM sees it. The proof is in the gateway log (`queries.kql` #7):
+
+| TimeGenerated (UTC) | CallerIpAddress | ResponseCode | BackendResponseCode |
+|---------------------|-----------------|--------------|---------------------|
+| 2026-10-15 13:45:19 | `10.20.1.87` | 200 | 200 |
+| 2026-10-15 13:45:22 | `10.20.1.87` | 200 | 200 |
+
+`10.20.1.87` is in `snet-agent`. One question = two calls: the tool call, then the
+final answer.
+
+The API's sign-in check, tested with curl from the jump host:
+
+| Call | Result |
+|------|--------|
+| No token | `401` Azure AD JWT not present |
+| Token for another audience (`https://cognitiveservices.azure.com`) | `401` Invalid Azure AD JWT |
+| Another path (`GET /v1/models`) | `404` |
+| Token for `https://ai.azure.com` | `200` |
 
 ```powershell
 python hosted-agent.py --skip-deploy --message "Hello"   # just chat
 python hosted-agent.py --delete                          # agent + versions + sessions
 ```
 
-- The agent calls the model **directly** through the project endpoint, not through
-  APIM, so it doesn't appear in `ApiManagementGatewayLogs`. The BYO gateway only
-  speaks chat/completions, and gpt-6-astra supports tools only on the Responses API.
+- **The code does the routing, not RBAC.** Learn: *"The agent identity can access
+  model inferencing through the project endpoint and session storage by default"*
+  ([Hosted agents](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents)).
+  Tested: with no role on the account, the previous version (direct calls through
+  the project endpoint) kept answering. So whoever deploys agent code can skip the
+  gateway. To make APIM the only way, the model must live in an account the project
+  can't reach (not built here).
+- Only model calls go through APIM. The hosting layer still uses the project
+  endpoint for its own state (sessions, stored responses).
+- The check accepts **any** identity in the tenant that can reach APIM privately.
+  To allow only this agent, list its identity in `<client-application-ids>` in
+  `modules/policy-entra.xml` (not tested here).
+- No token limit on this API: step 2's `llm-token-limit` lives in the step-2 API
+  policy and product. Add one to `policy-entra.xml` if you need it.
 - A call on a new session takes up to ~30 s while the sandbox starts.
 - A failed build prints the version's `error` (with the pip line); a failed call
   prints the session's container logs.
 - To see it in the portal, open the project's **Agents** page through `connect.ps1`.
 
-Teardown needs nothing extra — the agent lives in the project and goes with the
-resource group.
+Teardown needs nothing extra — the agent lives in the project and the API in APIM,
+and both go with the resource group.
+
+## Step 6 — let the hosted agent run Linux commands (optional, trusted lab only)
+
+`python hosted-agent.py --enable-shell` gives the agent one tool, `run_command`.
+The model picks the command; it runs either:
+
+| `target` | Where | As |
+|----------|-------|----|
+| `sandbox` | The agent's own sandbox (`/bin/sh`) | root of the sandbox |
+| `jump` | The jump host over SSH (`10.20.3.4:2222`, private) | `foundrydiag` — no sudo |
+
+Limits (`hosted-agent/execution.py`): 60 s per command (whole process group
+killed), 16 KiB of output, one command at a time, host key pinned (an unknown
+key is refused). The tool is only added when `ENABLE_SHELL=true`.
+
+What step 6 adds:
+
+| Piece | Where | Why |
+|-------|-------|-----|
+| Key Vault `kv-<prefix>-<suffix>` — RBAC, public access off, private endpoint in `snet-pe` + `privatelink.vaultcore.azure.net` zone | `06-agent-shell.bicep` | Holds the SSH private key. The secret is written through ARM, so you need no network path to the vault. |
+| **Key Vault Secrets User** on that one secret for the agent identity and the project identity | `modules/agent-shell.bicep` | The sandbox reads the key with `DefaultAzureCredential`. |
+| User `foundrydiag` on the jump host, key only from `10.20.1.0/24`, no forwarding | over SSH (below) | Bicep doesn't manage users inside the VM. |
+
+```powershell
+# 1. Key pair (temp folder, never the repo) + jump-host user
+$d = "$env:TEMP\agentkey"; mkdir $d -Force | Out-Null
+ssh-keygen -q -t ed25519 -N '' -C foundrydiag -f "$d\id"   # -N '' = no passphrase (not '""')
+$pub = (Get-Content "$d\id.pub" -Raw).Trim()
+ssh -p 2222 azureuser@<jump-public-ip> "id foundrydiag || sudo useradd -m -s /bin/bash foundrydiag; sudo install -d -m 700 -o foundrydiag -g foundrydiag /home/foundrydiag/.ssh; echo 'from=""10.20.1.0/24"",no-port-forwarding,no-agent-forwarding,no-X11-forwarding $pub' | sudo tee /home/foundrydiag/.ssh/authorized_keys; sudo chown foundrydiag: /home/foundrydiag/.ssh/authorized_keys; sudo chmod 600 /home/foundrydiag/.ssh/authorized_keys"
+
+# 2. Vault + secret + roles. AGENT_PRINCIPAL_ID = instance_identity.principal_id of the agent
+$env:AGENT_PRINCIPAL_ID   = '<agent identity>'
+$env:JUMP_HOST_KEY        = (ssh -p 2222 azureuser@<jump-public-ip> 'cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub')
+$env:JUMP_SSH_PRIVATE_KEY = Get-Content "$d\id" -Raw
+az deployment sub create --name aigwp-agent-shell `
+  --location swedencentral --parameters 06-agent-shell.bicepparam
+Remove-Item -Recurse -Force $d; Remove-Item Env:JUMP_SSH_PRIVATE_KEY
+
+# 3. New agent version with the tool + SSH_* settings from step 6's outputs
+python hosted-agent.py --enable-shell --message "Run hostname; id; ip -br a on the jump host"
+# sandbox only, without step 6:  --enable-shell --shell-deployment ''
+```
+
+Tested (2026-10-16):
+
+```text
+Tool : run_command({"command":"hostname; id; uptime; ip -br a","target":"jump"})
+     -> {"status": "completed", "exit_code": 0, "output": "vm-aigwp-jump\nuid=1001(foundrydiag) ..."}
+```
+
+The jump host's sshd log shows the login came from the agent subnet:
+`Accepted publickey for foundrydiag from 10.20.1.124`.
+
+**Risks — this is a remote shell driven by a model:**
+
+- Anyone who can chat with the agent can run commands. Sandbox commands can read
+  its environment and get tokens for the agent identity (Key Vault secret
+  included). The instructions forbid it (the model refused when asked), but
+  instructions are not a security boundary.
+- Command output goes back into the model, so a file or web page can carry a
+  prompt injection.
+- No sudo is not read-only: `foundrydiag` can still write its home, use the
+  network, and use CPU.
+- To turn it off: redeploy without `--enable-shell`, and/or delete the
+  `jump-ssh-key` secret or `foundrydiag`'s `authorized_keys`.
+
+Teardown: goes with the resource group. The vault soft-deletes for 7 days; run
+`az keyvault purge --name kv-<prefix>-<suffix>` before redeploying the same name.
+
+**Full sudo ("yolo" mode, PoC only).** Give `foundrydiag` passwordless sudo and
+tell the agent it may use it:
+
+```powershell
+ssh -p 2222 azureuser@<jump-public-ip> "echo 'foundrydiag ALL=(ALL) NOPASSWD:ALL' > /tmp/fd && sudo visudo -cf /tmp/fd && sudo install -m 440 /tmp/fd /etc/sudoers.d/90-foundrydiag && rm /tmp/fd"
+python hosted-agent.py --enable-shell --allow-sudo --message "Install cowsay on the jump host and make it say hello"
+# undo: sudo rm /etc/sudoers.d/90-foundrydiag, then redeploy without --allow-sudo
+```
+
+Tested: the agent ran `sudo -n apt-get install -y cowsay` and printed the cow.
+With sudo the model is root on the jump host, which is also your SOCKS
+entry point: it can change sshd, firewall or keys and lock you out. Fix from the
+portal (Run command / Serial console) or redeploy the VM.
 
 ## Cost
 
