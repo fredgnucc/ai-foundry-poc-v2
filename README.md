@@ -88,16 +88,23 @@ $env:LAB_SSH_PUBKEY = (Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" -Raw).
 
 ## Deploy
 
+**Step 1 — infrastructure** (~3 min)
+
 ```powershell
-# Step 1 - infrastructure (~3 min)
 az deployment sub create --name aigwp-infra `
   --location swedencentral --parameters 01-infra.bicepparam
+```
 
-# Step 2 - Foundry + AI Gateway (~3 min; APIM Standard v2 provisions fast)
+**Step 2 — Foundry + AI Gateway** (~6 min)
+
+```powershell
 az deployment sub create --name aigwp-gateway `
   --location swedencentral --parameters 02-gateway.bicepparam
+```
 
-# Step 3 - agent runtime / capability host (~10 min)
+**Step 3 — agent runtime / capability host** (~10 min)
+
+```powershell
 az deployment sub create --name aigwp-runtime `
   --location swedencentral --parameters 03-runtime.bicepparam
 ```
