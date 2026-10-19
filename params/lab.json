@@ -1,8 +1,8 @@
 {
-  "location": "norwayeast",
-  "resourceGroupName": "rg-ai-gateway-priv5",
+  "location": "francecentral",
+  "resourceGroupName": "rg-ai-gateway-priv6",
   "namePrefix": "aigwp",
-  "nameSeed": "v3",
+  "nameSeed": "v4",
   "tags": { "lab": "ai-gateway-private-3step" },
 
   "vnetAddressPrefix": "10.20.0.0/16",
@@ -11,7 +11,7 @@
   "peSubnetPrefix": "10.20.2.0/24",
   "jumpSubnetPrefix": "10.20.3.0/24",
 
-  "jumpVmSize": "Standard_B2ts_v2",
+  "jumpVmSize": "Standard_D2als_v7",
   "sshPort": 2222,
   "socksPort": 1080,
 

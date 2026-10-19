@@ -51,21 +51,40 @@ in the templates. Review at least `location`, `resourceGroupName`, `nameSeed`,
 
 ### Choose a region
 
-Two options. Set the three values in `params/lab.json`:
+Set the three values in `params/lab.json`. Capacity checked on 19 Oct 2026 by
+creating a throwaway Cosmos DB and AI Search in each region:
 
-| Region | `location` | `resourceGroupName` | `nameSeed` | Notes |
-|---|---|---|---|---|
-| Sweden Central | `swedencentral` | `rg-ai-gateway-priv4` | `v2` | The first lab ran here. Busy: in Oct 2026 new **AI Search** services failed with `InsufficientResourcesAvailable` |
-| Norway East | `norwayeast` | `rg-ai-gateway-priv5` | `v3` | Current `lab.json`. Hosted agents, `gpt-5.6-sol` DataZoneStandard, APIM Standard v2, the VM size and AI Search all checked available |
+| Region | `location` | `resourceGroupName` | `nameSeed` | Cosmos DB | AI Search | Notes |
+|---|---|---|---|---|---|---|
+| France Central | `francecentral` | `rg-ai-gateway-priv6` | `v4` | ✅ | ✅ | Current `lab.json` |
+| Sweden Central | `swedencentral` | `rg-ai-gateway-priv4` | `v2` | ✅ | ❌ | The first lab ran here |
+| Norway East | `norwayeast` | `rg-ai-gateway-priv5` | `v3` | ❌ | ✅ | Cosmos: "high demand in Norway East" |
+
+All three regions support hosted agents, `gpt-5.6-sol` DataZoneStandard and APIM
+Standard v2. Check `jumpVmSize` too: in France Central our subscription can't use
+`Standard_B2ts_v2` (or any B-series), so `lab.json` uses `Standard_D2als_v7`.
+List the sizes open to you with
+`az vm list-skus -l <region> --resource-type virtualMachines` (no `restrictions`).
 
 > **Capacity can be a problem.** A region can run out of capacity for one
-> service (AI Search, a VM size, a model SKU) while the rest works. Step 3 then
-> fails with `InsufficientResourcesAvailable`. Retry later, or move the **whole**
-> lab: the Foundry resource must be in the same region as its VNet, and capability
-> hosts can't be updated to add Search later. To test a region first, create a
-> throwaway basic Search service there and delete it. Model quota for DataZone
-> and Global SKUs is shared across regions — check it with
-> `az cognitiveservices usage list -l <region>`.
+> service (AI Search, Cosmos DB, a VM size, a model SKU) while the rest works.
+> Step 3 then fails with `InsufficientResourcesAvailable` (Search) or
+> `ServiceUnavailable` (Cosmos). Retry later, or move the **whole** lab: the
+> Foundry resource must be in the same region as its VNet, and capability hosts
+> can't be updated to add a resource later. To test a region first, create a
+> throwaway Cosmos DB account and basic Search service there, then delete them:
+>
+> ```powershell
+> $r = 'francecentral'; $g = "rg-probe-$r"; $s = Get-Random -Max 99999
+> az group create -n $g -l $r -o none
+> az cosmosdb create -n "cosprobe$s" -g $g --locations regionName=$r failoverPriority=0 isZoneRedundant=false --query provisioningState -o tsv
+> az search service create -n "srchprobe$s" -g $g -l $r --sku basic --query provisioningState -o tsv
+> az group delete -n $g --yes --no-wait
+> ```
+>
+> Model quota for DataZone and Global SKUs is shared across regions — check it
+> with `az cognitiveservices usage list -l <region>`. A failed Cosmos account
+> stays behind in `Failed` state; delete it before retrying.
 
 > **Running more than one instance in the same subscription?** Foundry accounts
 > and APIM soft-delete, and every resource name is derived from
