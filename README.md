@@ -199,7 +199,8 @@ Search service → **Settings → Semantic ranker → Free**. Or from the CLI:
 ```powershell
 $search = az deployment sub show --name aigwp-foundry-iq `
   --query properties.outputs.searchName.value -o tsv
-$id = az search service show --name $search -g rg-ai-gateway-priv3 --query id -o tsv
+$rg = (Get-Content params\lab.json -Raw | ConvertFrom-Json).resourceGroupName
+$id = az search service show --name $search -g $rg --query id -o tsv
 $body = New-TemporaryFile
 '{"properties":{"semanticSearch":"free"}}' | Set-Content $body -Encoding ascii
 az rest --method patch `
@@ -423,7 +424,7 @@ item down. **Tear it down when you are not using it.**
 ## Teardown
 
 ```powershell
-az group delete --name rg-ai-gateway-priv3 --yes --no-wait
+az group delete --name (Get-Content params\lab.json -Raw | ConvertFrom-Json).resourceGroupName --yes --no-wait
 # Foundry accounts and APIM soft-delete; purge them if you will redeploy the same names:
 #   az cognitiveservices account purge ...
 #   az apim deletedservice purge ...
@@ -454,7 +455,7 @@ inbound path with a single targeted update — no full redeploy needed:
 
 ```powershell
 # Disable public inbound; the private endpoint becomes the only way in.
-$rg   = 'rg-ai-gateway-priv3'
+$rg   = (Get-Content params\lab.json -Raw | ConvertFrom-Json).resourceGroupName
 $apim = az apim list -g $rg --query "[0].name" -o tsv
 $id   = az apim show -g $rg -n $apim --query id -o tsv
 
