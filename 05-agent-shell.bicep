@@ -4,12 +4,12 @@ metadata description = '''
 Step 5 (optional) - shell access for the step-4 hosted agent.
 
 Additive: it does NOT modify steps 1-4. It adds a private Key Vault (with its
-private DNS zone and endpoint) holding the SSH key of a non-sudo jump-host user,
-readable only by the agent. hosted-agent.py --enable-shell reads this
-deployment's outputs and passes them to the agent as SSH_* settings.
+private DNS zone and endpoint) holding the SSH key of the jump-host user
+'foundrydiag', readable only by the agent, and a VM runCommand that creates that
+user (key accepted only from the agent subnet; sudo only with allowSudo).
 
-The jump-host user and its authorized_keys are created over SSH, not here
-(see README, Step 5).
+Run it through enable-shell.py: it generates the key pair, deploys this, and posts
+the agent version with the run_command tool.
 '''
 
 import { resourceSuffix, labNames, subnetNames } from './shared/naming.bicep'
@@ -21,16 +21,20 @@ param namePrefix string
 param nameSeed string
 param projectName string
 param sshPort int
+param agentSubnetPrefix string
 
-@description('Agent identity of the hosted agent (printed by hosted-agent.py).')
+@description('Agent identity of the hosted agent (read by enable-shell.py).')
 param agentPrincipalId string
 
 @secure()
 @description('OpenSSH ed25519 private key for sshUser.')
 param sshPrivateKey string
 
-@description('Public host key line of the jump host, e.g. "ssh-ed25519 AAAA...". Pinned by the agent.')
-param jumpHostKey string
+@description('OpenSSH public key line matching sshPrivateKey.')
+param sshPublicKey string
+
+@description('PoC only: passwordless sudo for sshUser on the jump host.')
+param allowSudo bool = false
 
 param sshUser string = 'foundrydiag'
 param secretName string = 'jump-ssh-key'
@@ -61,6 +65,11 @@ module shell 'modules/agent-shell.bicep' = {
     agentPrincipalId: agentPrincipalId
     sshPrivateKey: sshPrivateKey
     secretName: secretName
+    jumpVmName: names.jumpVm
+    sshUser: sshUser
+    sshPublicKey: sshPublicKey
+    agentSubnetPrefix: agentSubnetPrefix
+    allowSudo: allowSudo
   }
 }
 
@@ -71,4 +80,6 @@ output secretName string = secretName
 output sshHost string = sshHost
 output sshPort int = sshPort
 output sshUser string = sshUser
-output sshKnownHost string = '[${sshHost}]:${sshPort} ${jumpHostKey}'
+output allowSudo bool = allowSudo
+@description('runCommand whose instance view holds the jump host key (HOSTKEY line).')
+output setupRunCommandId string = shell.outputs.setupRunCommandId

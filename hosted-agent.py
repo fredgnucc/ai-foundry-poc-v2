@@ -36,6 +36,7 @@ import requests
 from azure.identity import AzureCliCredential
 
 from agent import SCOPE, deployment_outputs, listening, socks_port
+from arm import Arm, host_key
 
 API_VERSION = "v1"
 SOURCE = Path(__file__).parent / "hosted-agent"
@@ -127,19 +128,25 @@ def deploy(api: DataPlane, name: str, model: str, gateway_url: str, extra_env: d
     return str(latest["version"])
 
 
-def shell_env(shell_deployment: str) -> dict[str, str]:
+def shell_env(shell_deployment: str, allow_sudo: bool = False) -> dict[str, str]:
     """Settings for run_command: sandbox always, jump host when step 5 is deployed."""
     env = {"ENABLE_SHELL": "true"}
     if shell_deployment:
-        out = deployment_outputs(shell_deployment)
+        arm = Arm()
+        out = arm.deployment_outputs(shell_deployment)
+        key = host_key(arm.run_command_output(out["setupRunCommandId"]))
         env |= {
             "SSH_HOST": out["sshHost"],
             "SSH_PORT": str(out["sshPort"]),
             "SSH_USER": out["sshUser"],
-            "SSH_KNOWN_HOST": out["sshKnownHost"],
+            "SSH_KNOWN_HOST": f"[{out['sshHost']}]:{out['sshPort']} {key}",
             "SSH_VAULT_URL": out["vaultUri"],
             "SSH_SECRET_NAME": out["secretName"],
         }
+        if allow_sudo and not out.get("allowSudo"):
+            sys.exit("--allow-sudo needs step 5 deployed with sudo: python enable-shell.py --allow-sudo")
+    if allow_sudo:
+        env["JUMP_ALLOW_SUDO"] = "true"
     return env
 
 
@@ -205,6 +212,16 @@ def invoke(api: DataPlane, name: str, message: str) -> int:
         elif kind == "message":
             print("Agent: " + "".join(part.get("text", "") for part in item.get("content", [])))
     return 0
+
+
+def agent_identity(api: DataPlane, name: str) -> str:
+    """Principal ID of the agent's latest version (used by enable-shell.py)."""
+    response = api.call("GET", f"/agents/{name}")
+    if response.status_code == 404:
+        sys.exit(f"No agent named '{name}'. Deploy it first: python hosted-agent.py")
+    if not response.ok:
+        fail(response)
+    return response.json()["versions"]["latest"]["instance_identity"]["principal_id"]
 
 
 def delete(api: DataPlane, name: str) -> int:
@@ -288,9 +305,7 @@ def main() -> int:
         if not gateway_url:
             sys.exit(f"Deployment '{args.gateway_deployment}' has no gatewayUrl output. Deploy step 4 first.")
         print(f"AI gateway: {gateway_url}")
-        extra_env = shell_env(args.shell_deployment) if args.enable_shell else {}
-        if args.enable_shell and args.allow_sudo:
-            extra_env["JUMP_ALLOW_SUDO"] = "true"
+        extra_env = shell_env(args.shell_deployment, args.allow_sudo) if args.enable_shell else {}
         version = deploy(api, args.name, out["deploymentName"], gateway_url, extra_env)
         wait_active(api, args.name, version, args.timeout)
     return invoke(api, args.name, args.message)

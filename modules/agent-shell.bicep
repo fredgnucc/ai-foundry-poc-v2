@@ -20,8 +20,58 @@ param sshPrivateKey string
 
 param secretName string
 
+@description('Jump host VM where the runCommand creates the user.')
+param jumpVmName string
+
+param sshUser string
+
+@description('OpenSSH public key line of sshUser.')
+param sshPublicKey string
+
+@description('Only this CIDR may log in with the key (the agent subnet).')
+param agentSubnetPrefix string
+
+@description('PoC only: passwordless sudo for sshUser. False removes the sudoers file.')
+param allowSudo bool
+
 var zoneName = 'privatelink.vaultcore.azure.net'
 var secretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+var sudoersFile = '/etc/sudoers.d/90-${sshUser}'
+var sudoLine = allowSudo
+  ? 'echo \'${sshUser} ALL=(ALL) NOPASSWD:ALL\' > /tmp/sudo-${sshUser} && visudo -cf /tmp/sudo-${sshUser} && install -m 440 /tmp/sudo-${sshUser} ${sudoersFile} && rm /tmp/sudo-${sshUser}'
+  : 'rm -f ${sudoersFile}'
+
+resource jumpVm 'Microsoft.Compute/virtualMachines@2024-07-01' existing = {
+  name: jumpVmName
+}
+
+// Runs as root through the VM agent: no SSH from the deployer. The public key
+// changes on every enable-shell.py run, so the script changes and runs again.
+// The last line prints the host key; enable-shell.py reads it from the instance
+// view to pin it in the agent (Bicep cannot read the instance view).
+resource userSetup 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01' = {
+  parent: jumpVm
+  name: '${sshUser}-setup'
+  location: location
+  tags: tags
+  properties: {
+    asyncExecution: false
+    timeoutInSeconds: 300
+    treatFailureAsDeploymentFailure: true
+    source: {
+      script: join([
+        'set -e'
+        'id ${sshUser} >/dev/null 2>&1 || useradd -m -s /bin/bash ${sshUser}'
+        'install -d -m 700 -o ${sshUser} -g ${sshUser} /home/${sshUser}/.ssh'
+        'echo \'from="${agentSubnetPrefix}",no-port-forwarding,no-agent-forwarding,no-X11-forwarding ${sshPublicKey}\' > /home/${sshUser}/.ssh/authorized_keys'
+        'chown ${sshUser}: /home/${sshUser}/.ssh/authorized_keys'
+        'chmod 600 /home/${sshUser}/.ssh/authorized_keys'
+        sudoLine
+        'echo "HOSTKEY $(cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"'
+      ], '\n')
+    }
+  }
+}
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
   name: vnetName
@@ -109,3 +159,4 @@ module pe 'private-endpoint.bicep' = {
 }
 
 output vaultUri string = vault.properties.vaultUri
+output setupRunCommandId string = userSetup.id

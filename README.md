@@ -348,33 +348,22 @@ What step 5 adds:
 |-------|-------|-----|
 | Key Vault `kv-<prefix>-<suffix>` — RBAC, public access off, private endpoint in `snet-pe` + `privatelink.vaultcore.azure.net` zone | `05-agent-shell.bicep` | Holds the SSH private key. The secret is written through ARM, so you need no network path to the vault. |
 | **Key Vault Secrets User** on that one secret for the agent identity and the project identity | `modules/agent-shell.bicep` | The sandbox reads the key with `DefaultAzureCredential`. |
-| User `foundrydiag` on the jump host, key only from the agent subnet (`agentSubnetPrefix`), no forwarding | over SSH (below) | Bicep doesn't manage users inside the VM. |
+| User `foundrydiag` on the jump host, key only from the agent subnet (`agentSubnetPrefix`), no forwarding | VM `runCommands` in `modules/agent-shell.bicep` | Runs as root inside the VM; also returns the host key that the agent pins. |
+
+One command, tunnel open (or on the jump host with `--no-tunnel`):
 
 ```powershell
-# 0. Values from lab.json and step 1 - no IPs to type
-$lab  = Get-Content params\lab.json -Raw | ConvertFrom-Json
-$p    = $lab.sshPort
-$jump = "$(if ($env:LAB_ADMIN_USER) { $env:LAB_ADMIN_USER } else { 'azureuser' })@$(az deployment sub show --name aigwp-infra --query properties.outputs.publicIpAddress.value -o tsv)"
-
-# 1. Key pair (temp folder, never the repo) + jump-host user
-$d = "$env:TEMP\agentkey"; mkdir $d -Force | Out-Null
-ssh-keygen -q -t ed25519 -N '' -C foundrydiag -f "$d\id"   # -N '' = no passphrase (not '""')
-$pub = (Get-Content "$d\id.pub" -Raw).Trim()
-ssh -p $p $jump "id foundrydiag || sudo useradd -m -s /bin/bash foundrydiag; sudo install -d -m 700 -o foundrydiag -g foundrydiag /home/foundrydiag/.ssh; echo 'from=""$($lab.agentSubnetPrefix)"",no-port-forwarding,no-agent-forwarding,no-X11-forwarding $pub' | sudo tee /home/foundrydiag/.ssh/authorized_keys; sudo chown foundrydiag: /home/foundrydiag/.ssh/authorized_keys; sudo chmod 600 /home/foundrydiag/.ssh/authorized_keys"
-
-# 2. Vault + secret + roles. AGENT_PRINCIPAL_ID = instance_identity.principal_id of the agent
-$env:AGENT_PRINCIPAL_ID   = '<agent identity>'
-$env:JUMP_HOST_KEY        = (ssh -p $p $jump 'cut -d" " -f1,2 /etc/ssh/ssh_host_ed25519_key.pub')
-$env:JUMP_SSH_PRIVATE_KEY = Get-Content "$d\id" -Raw
-az deployment sub create --name aigwp-agent-shell `
-  --location $loc --parameters 05-agent-shell.bicepparam
-Remove-Item -Recurse -Force $d; Remove-Item Env:JUMP_SSH_PRIVATE_KEY
-
-# 3. New agent version with the tool + SSH_* settings from step 5's outputs
-python hosted-agent.py --enable-shell --message "Run hostname; id; ip -br a on the jump host"
-# sandbox only, without step 5:  --enable-shell --shell-deployment ''
+pip install "requests[socks]" azure-identity cryptography   # once
+python enable-shell.py
 ```
 
+It reads the agent identity, makes a new ed25519 key in memory (never on disk),
+deploys `05-agent-shell.bicepparam` over ARM REST (no `az` command lines; Bicep
+compiled with the `bicep` CLI, or the one `az` installs in `~/.azure/bin`), then
+posts a new agent version with the tool and sends a test message. Re-running
+rotates the key. Later agent redeploys reuse step 5 as is:
+`python hosted-agent.py --enable-shell`. Sandbox only, without step 5:
+`python hosted-agent.py --enable-shell --shell-deployment ''`.
 Tested (2026-10-16):
 
 ```text
@@ -405,11 +394,9 @@ Teardown: goes with the resource group. The vault soft-deletes for 7 days; run
 tell the agent it may use it:
 
 ```powershell
-ssh -p $p $jump "echo 'foundrydiag ALL=(ALL) NOPASSWD:ALL' > /tmp/fd && sudo visudo -cf /tmp/fd && sudo install -m 440 /tmp/fd /etc/sudoers.d/90-foundrydiag && rm /tmp/fd"   # $p, $jump: step 5, part 0
-python hosted-agent.py --enable-shell --allow-sudo --message "Install cowsay on the jump host and make it say hello"
-# undo: sudo rm /etc/sudoers.d/90-foundrydiag, then redeploy without --allow-sudo
+python enable-shell.py --allow-sudo --message "Install cowsay on the jump host and make it say hello"
+# undo: python enable-shell.py   (the runCommand removes /etc/sudoers.d/90-foundrydiag)
 ```
-
 Tested: the agent ran `sudo -n apt-get install -y cowsay` and printed the cow.
 With sudo the model is root on the jump host, which is also your SOCKS
 entry point: it can change sshd, firewall or keys and lock you out. Fix from the
