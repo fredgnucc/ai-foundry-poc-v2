@@ -22,6 +22,7 @@ steps are the deployment.
 | 4 *(optional)* | `04-hosted-agent.bicep` | Keyless (Entra) gateway API for a Foundry **hosted agent** | ~nothing |
 | 5 *(optional)* | `05-agent-shell.bicep` | Private Key Vault + SSH key so the hosted agent can run commands on the jump host | ~nothing |
 | 6 *(optional)* | `06-foundry-iq.bicep` | Embedding model + Search identity for a private **Foundry IQ** knowledge base | per use |
+| 7 *(optional)* | `07-teams.bicep` | Azure Bot Service so an agent can be published to **Teams / Microsoft 365 Copilot** | free (F0) |
 
 ### The three layers people conflate
 
@@ -470,6 +471,42 @@ same private path.
 
 Teardown needs nothing extra — the embedding deployment and the knowledge base live
 in the resource group, so the `az group delete` below removes them.
+
+## Step 7 — publish an agent to Teams and Microsoft 365 Copilot (optional)
+
+The portal's **Publish** button doesn't work when the project has public network
+access off. `publish-teams.py` does the
+[REST flow](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network)
+in one command, tunnel open (or on the jump host with `--no-tunnel`):
+
+```powershell
+python publish-teams.py --agent private-agent              # just you (Shared)
+# --scope Tenant: whole org, after approval in admin.cloud.microsoft > Agents > Requests
+# --app-version 1.0.1: needed to republish (same version = "already exists")
+```
+
+| Part | Where | What |
+|------|-------|------|
+| Agent identity (`instance_identity.client_id`) | Python, private data plane | The bot's app ID |
+| Azure Bot Service `bot-<prefix>-<agent>-<suffix>` (F0, public access off) + Teams channel | `07-teams.bicep`, over ARM REST | Forwards Teams/Copilot messages to the agent's Activity Protocol endpoint |
+| `activity` protocol with `enable_m365_public_endpoint: true` + `BotServiceRbac` (`Shared`) or `BotServiceTenant` (`Tenant`) | Python, PATCH on the agent | Keeps `responses` and `Entra` |
+| Microsoft 365 publish | Python | Builds the Teams app and adds it to the agent store |
+
+Then in Teams or Copilot (signed in to the **same tenant** as the Foundry project):
+**Apps → Your agents → `<agent>`**.
+
+**What becomes public:** only the agent's Activity Protocol route, and only from
+the Bot Service / Microsoft 365 IP ranges (Foundry filters them). Each message still
+needs a valid Bot Service token for this agent, plus RBAC (`Shared`: Foundry rights on
+the project) or tenant membership (`Tenant`). Project management, `responses` and all
+other APIs stay private. The agent's outbound path (gateway, tools) doesn't change.
+
+Tested (2026-10-21): `--agent hosted-agent` returned a `titleId` and `teamsAppId`.
+Careful: publishing an agent that has the step-5 shell lets every allowed Teams user
+run commands on the jump host.
+
+Undo: delete the bot (`bot-<prefix>-<agent>-<suffix>` in the resource group) and the
+app in Teams. Goes with the resource group at teardown.
 
 ## Cost
 

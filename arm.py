@@ -97,6 +97,18 @@ class Arm:
         print(f"  {name}: succeeded ({int(time.time() - start)}s)")
         return {key: value["value"] for key, value in (props.get("outputs") or {}).items()}
 
+    def register_provider(self, namespace: str, timeout: int = 600) -> None:
+        path = f"/subscriptions/{self.subscription_id}/providers/{namespace}"
+        if self.call("GET", path, "2021-04-01").json().get("registrationState") == "Registered":
+            return
+        print(f"  registering {namespace}")
+        self.call("POST", f"{path}/register", "2021-04-01")
+        start = time.time()
+        while self.call("GET", path, "2021-04-01").json().get("registrationState") != "Registered":
+            if time.time() - start > timeout:
+                sys.exit(f"{namespace} still not registered after {timeout}s.")
+            time.sleep(10)
+
     def run_command_output(self, run_command_id: str) -> str:
         view = self.call("GET", f"{run_command_id}?$expand=instanceView", "2024-07-01").json()
         return view["properties"].get("instanceView", {}).get("output") or ""
