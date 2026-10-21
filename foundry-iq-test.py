@@ -27,30 +27,18 @@ from __future__ import annotations
 import argparse
 import json
 import socket
-import subprocess
 import sys
 from pathlib import Path
 
 import requests
 from azure.identity import AzureCliCredential
 
+from arm import Arm
+
 # Preview version: query planning + answer synthesis. Use 2026-04-01 for the GA,
 # extractive-only path (which takes "intents" instead of "messages").
 API_VERSION = "2026-08-01-preview"
 SCOPE = "https://search.azure.com/.default"
-
-
-def deployment_outputs(name: str) -> dict[str, str]:
-    """Read outputs from a subscription deployment (defaults to step 3)."""
-    result = subprocess.run(
-        ["az", "deployment", "sub", "show", "--name", name, "--query", "properties.outputs", "-o", "json"],
-        capture_output=True,
-        text=True,
-        shell=(sys.platform == "win32"),
-    )
-    if result.returncode != 0:
-        sys.exit(f"Could not read deployment '{name}'.\n{result.stderr.strip()}")
-    return {k: v["value"] for k, v in json.loads(result.stdout).items()}
 
 
 def lab_config() -> dict:
@@ -98,7 +86,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    search = deployment_outputs(args.deployment)["searchName"]
+    search = Arm().deployment_outputs(args.deployment)["searchName"]
 
     # The Search data plane is private, so you must reach it from inside the VNet -
     # either run connect.ps1 to open the SOCKS5 proxy (auto-detected here), or run

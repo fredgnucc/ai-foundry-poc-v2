@@ -21,28 +21,16 @@ from __future__ import annotations
 import argparse
 import json
 import socket
-import subprocess
 import sys
 from pathlib import Path
 
 import requests
 from azure.identity import AzureCliCredential
 
+from arm import Arm
+
 API_VERSION = "v1"
 SCOPE = "https://ai.azure.com/.default"
-
-
-def deployment_outputs(name: str) -> dict[str, str]:
-    """Read outputs from the step-2 (gateway) subscription deployment."""
-    result = subprocess.run(
-        ["az", "deployment", "sub", "show", "--name", name, "--query", "properties.outputs", "-o", "json"],
-        capture_output=True,
-        text=True,
-        shell=(sys.platform == "win32"),
-    )
-    if result.returncode != 0:
-        sys.exit(f"Could not read deployment '{name}'.\n{result.stderr.strip()}")
-    return {k: v["value"] for k, v in json.loads(result.stdout).items()}
 
 
 def socks_port() -> int:
@@ -87,7 +75,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    out = deployment_outputs(args.deployment)
+    out = Arm().deployment_outputs(args.deployment)
     account = out["accountName"]
     project = out["projectName"]
     deployment_name = out["deploymentName"]
