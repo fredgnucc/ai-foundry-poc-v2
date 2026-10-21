@@ -1,0 +1,5 @@
+{
+  "agentName": "redteam-orchestrator",
+  "cpu": "1",
+  "memory": "2Gi"
+}

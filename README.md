@@ -508,6 +508,14 @@ run commands on the jump host.
 Undo: delete the bot (`bot-<prefix>-<agent>-<suffix>` in the resource group) and the
 app in Teams. Goes with the resource group at teardown.
 
+## Optional - isolated AI red-team demo
+
+`python deploy-redteam.py` creates a separate `redteam-orchestrator` hosted agent
+with a bounded PyRIT exercise and a synthetic target: fake canaries, in-memory mock
+tools, and no SSH/shell access. It compares prompt-only rules with code-enforced
+permissions. See [the demo guide](redteam-agent/README.md) for limits, evidence
+scoring, Teams publishing, and removal. The existing `hosted-agent` is unchanged.
+
 ## Cost
 
 This stack bills continuously whether or not you call it — APIM Standard v2,
