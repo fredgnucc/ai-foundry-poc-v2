@@ -35,7 +35,7 @@ from pathlib import Path
 import requests
 from azure.identity import AzureCliCredential
 
-from agent import SCOPE, deployment_outputs, listening, socks_port
+from agent import SCOPE, listening, socks_port
 from arm import Arm, host_key
 
 API_VERSION = "v1"
@@ -293,7 +293,8 @@ def main() -> int:
     parser.add_argument("--proxy-port", type=int, default=None, help="SOCKS port (default: lab.json socksPort).")
     args = parser.parse_args()
 
-    out = deployment_outputs(args.deployment)
+    arm = Arm()
+    out = arm.deployment_outputs(args.deployment)
     endpoint = f"https://{out['accountName']}.services.ai.azure.com/api/projects/{out['projectName']}"
     api = DataPlane(endpoint, tunnel_proxies(args))
 
@@ -301,7 +302,7 @@ def main() -> int:
         return delete(api, args.name)
     if not args.skip_deploy:
         # The agent reaches the model only through the step-4 gateway API.
-        gateway_url = deployment_outputs(args.gateway_deployment).get("gatewayUrl")
+        gateway_url = arm.deployment_outputs(args.gateway_deployment).get("gatewayUrl")
         if not gateway_url:
             sys.exit(f"Deployment '{args.gateway_deployment}' has no gatewayUrl output. Deploy step 4 first.")
         print(f"AI gateway: {gateway_url}")
