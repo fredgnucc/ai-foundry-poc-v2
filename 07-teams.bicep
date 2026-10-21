@@ -26,9 +26,13 @@ param agentClientId string
 @description('Name shown in Teams and Copilot.')
 param displayName string = agentName
 
+@description('Same value the portal sets on the bots it creates. Without api-version Foundry rejects the call.')
+param activityApiVersion string = '2025-11-15-preview'
+
 var suffix = resourceSuffix(subscription().id, resourceGroupName, namePrefix, nameSeed)
 var names = labNames(namePrefix, suffix)
-var endpoint = 'https://${names.account}.services.ai.azure.com/api/projects/${projectName}/agents/${agentName}/endpoint/protocols/activityProtocol'
+var botName = 'bot-${namePrefix}-${agentName}-${suffix}'
+var endpoint = 'https://${names.account}.services.ai.azure.com/api/projects/${projectName}/agents/${agentName}/endpoint/protocols/activityprotocol?api-version=${activityApiVersion}'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' existing = {
   name: resourceGroupName
@@ -39,8 +43,8 @@ module bot 'modules/teams-bot.bicep' = {
   name: 'teams-bot-${agentName}'
   params: {
     tags: tags
-    // Bot names are global: 2-64 chars, letters, digits, '-', '_', '.'.
-    botName: take('bot-${namePrefix}-${agentName}-${suffix}', 64)
+    // Azure Bot Service limits names to 42 characters. Preserve existing short names.
+    botName: length(botName) <= 42 ? botName : '${take('bot-${namePrefix}-${agentName}', 28)}-${uniqueString(suffix, agentName)}'
     displayName: displayName
     msaAppId: agentClientId
     endpoint: endpoint

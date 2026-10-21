@@ -71,7 +71,8 @@ def build_zip(source: Path) -> bytes:
     """Flat, deterministic zip: the same files give the same bytes, so no new version."""
     files = sorted(
         path for path in source.rglob("*")
-        if path.is_file() and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(source).parts)
+        if not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(source).parts)
+        and path.is_file()
     )
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -86,16 +87,17 @@ def build_zip(source: Path) -> bytes:
     return buffer.getvalue()
 
 
-def deploy(api: DataPlane, name: str, model: str, gateway_url: str, extra_env: dict[str, str]) -> str:
-    code = build_zip(SOURCE)
+def deploy(api: DataPlane, name: str, model: str, gateway_url: str, extra_env: dict[str, str],
+           *, source: Path = SOURCE, cpu: str = "0.5", memory: str = "1Gi") -> str:
+    code = build_zip(source)
     sha = hashlib.sha256(code).hexdigest()
     metadata = {
         "description": "Created by hosted-agent.py",
         "definition": {
             "kind": "hosted",
             "protocol_versions": [{"protocol": "responses", "version": "2.0.0"}],
-            "cpu": "0.5",
-            "memory": "1Gi",
+            "cpu": cpu,
+            "memory": memory,
             "code_configuration": {
                 "runtime": "python_3_13",
                 "entry_point": ["python", "main.py"],
