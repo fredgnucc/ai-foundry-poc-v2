@@ -120,7 +120,9 @@ def main() -> int:
     }
     response = api.call("POST", f"/agents/{args.agent}/microsoft365/publish", json=body, timeout=300)
     if response.status_code == 409 or "already exists" in response.text:
-        sys.exit(f"App version {args.app_version} is already published. Use --app-version with a higher number.\n{response.text}")
+        # Bot and endpoint are already updated above; only the store metadata is unchanged.
+        print(f"    app {args.app_version} already published - kept. Use --app-version to change its metadata.")
+        return 0
     if not response.ok:
         hosted.fail(response)
     print(f"    {response.text}")
