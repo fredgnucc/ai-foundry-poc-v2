@@ -1,0 +1,4 @@
+openai
+azure-ai-agentserver-responses>=2.2.0b1,<3
+azure-identity
+aiohttp

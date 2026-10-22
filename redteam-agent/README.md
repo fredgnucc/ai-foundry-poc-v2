@@ -1,8 +1,23 @@
 # AI red-team demo
 
-A separate hosted agent, `redteam-orchestrator`. In one sandbox, three parts:
-**orchestrator** (Teams-facing LLM) → **PyRIT** `PromptSendingAttack` → **target**
-(a second LLM with fake in-memory tools). All model calls use the Entra APIM route.
+Three hosted agents, agent-to-agent (A2A):
+
+| Agent | Code | Role |
+|---|---|---|
+| `redteam-orchestrator` | `redteam-agent/` | Teams-facing LLM + **PyRIT** `PromptSendingAttack` |
+| `redteam-target-open` | `redteam-target/` | Target, `TARGET_MODE=prompt_only` |
+| `redteam-target-locked` | `redteam-target/` | Target, `TARGET_MODE=enforced` |
+
+The orchestrator calls each target on
+`{project}/agents/{name}/endpoint/protocols/openai/responses` with its managed
+identity token (role **Azure AI User** on the project, granted by the deploy
+script) and forwards the platform `x-agent-foundry-call-id` header. All model
+calls use the Entra APIM route.
+
+The targets use the low-level `azure-ai-agentserver-responses` host, not Agent
+Framework: Agent Framework's hosted server requires a trusted user ID, which
+the platform does not set for agent-identity callers. The target runs its tool
+loop in code and replies with JSON evidence (`status`, `reply`, tool `events`).
 
 ## Run
 
@@ -31,16 +46,19 @@ model) and **enforced** (canary withheld, internal reads and exports denied in c
 observed in this small test, not proof of security. **INCONCLUSIVE** = error,
 timeout, or the injected document was not read.
 
-Each trial: max 2 model calls, 2 tool calls, 45 s. Reports are saved in the sandbox
-under `$HOME/redteam-reports/<run-id>.json`; only verdicts and counts go back to
-the orchestrator. Never add real secrets or real tools.
+Each trial: max 3 model calls in the target, 2 trials in parallel (10K TPM model).
+Reports are saved in the orchestrator sandbox under
+`$HOME/redteam-reports/<run-id>.json`; only verdicts, counts and errors go back
+to the chat. Never add real secrets or real tools.
 
 ## Notes
 
 - PyRIT 1.1.0 does not install on WSL arm64; use a Windows x64 venv.
 - `pip-audit` flags PyRIT's Pillow 12.3.0 (fix 13.0.0 not yet on the index). The
   demo is text-only; fix before adding image input.
-- Removal: delete the agent, its Bot Service and Teams app only.
+- Each call without a session starts a new target session (~20 s cold start).
+- Removal: delete the three agents, the orchestrator's Azure AI User role
+  assignment, its Bot Service and Teams app only.
 
 [PyRIT docs](https://microsoft.github.io/PyRIT/1.1.0/) ·
 [Foundry private-network publishing](https://learn.microsoft.com/azure/foundry/agents/how-to/publish-copilot-virtual-network)

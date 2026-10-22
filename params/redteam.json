@@ -1,5 +1,9 @@
 {
   "agentName": "redteam-orchestrator",
   "cpu": "1",
-  "memory": "2Gi"
+  "memory": "2Gi",
+  "targets": {
+    "prompt_only": "redteam-target-open",
+    "enforced": "redteam-target-locked"
+  }
 }

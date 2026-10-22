@@ -510,10 +510,11 @@ app in Teams. Goes with the resource group at teardown.
 
 ## Optional - isolated AI red-team demo
 
-`python deploy-redteam.py` creates a separate `redteam-orchestrator` hosted agent
-with a bounded PyRIT exercise and a synthetic target: fake canaries, in-memory mock
-tools, and no SSH/shell access. It compares prompt-only rules with code-enforced
-permissions. See [the demo guide](redteam-agent/README.md) for limits, evidence
+`python deploy-redteam.py` creates a `redteam-orchestrator` hosted agent that runs
+a bounded PyRIT exercise against two separate target agents
+(`redteam-target-open`, `redteam-target-locked`) over agent-to-agent calls: fake
+canaries, in-memory mock tools, and no SSH/shell access. It compares prompt-only
+rules with code-enforced permissions. See [the demo guide](redteam-agent/README.md) for limits, evidence
 scoring, Teams publishing, and removal. The existing `hosted-agent` is unchanged.
 
 ## Cost
